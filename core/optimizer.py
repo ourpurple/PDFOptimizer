@@ -3,8 +3,6 @@ import pikepdf
 import subprocess
 import shutil
 import sys
-import traceback
-
 def get_subprocess_startup_info():
     """
     为 subprocess.Popen 创建启动信息，以便在 Windows 上隐藏控制台窗口。
@@ -15,6 +13,9 @@ def get_subprocess_startup_info():
         startupinfo.wShowWindow = subprocess.SW_HIDE
         return startupinfo
     return None
+def _get_gs_executable():
+    """查找 Ghostscript 可执行文件。"""
+    return shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
 
 def optimize_pdf(input_path, output_path, quality_preset, progress_callback=None):
     """
@@ -63,10 +64,9 @@ def optimize_pdf(input_path, output_path, quality_preset, progress_callback=None
             "message": "优化成功！"
         }
     except Exception as e:
-        tb = traceback.format_exc()
         return {
             "success": False,
-            "message": f"优化失败: {str(e)}\n详细信息:\n{tb}"
+            "message": f"优化失败: {str(e)}"
         }
 
 def convert_to_curves_with_ghostscript(input_path, output_path):
@@ -76,7 +76,7 @@ def convert_to_curves_with_ghostscript(input_path, output_path):
     :param output_path: 输出 PDF 文件路径
     :return: dict 转换结果
     """
-    gs_executable = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
+    gs_executable = _get_gs_executable()
     if not gs_executable:
         return {"success": False, "message": "未找到 Ghostscript 可执行文件，请安装 Ghostscript 并确保其在系统 PATH 中。"}
 
@@ -114,7 +114,7 @@ def convert_to_curves_with_ghostscript(input_path, output_path):
         }
 
 def is_ghostscript_installed():
-    return shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
+    return _get_gs_executable() is not None
 
 def optimize_pdf_with_ghostscript(input_path, output_path, quality_preset):
     """
@@ -124,10 +124,9 @@ def optimize_pdf_with_ghostscript(input_path, output_path, quality_preset):
     :param quality_preset: 质量预设字符串，如 "低质量 (最大压缩)", "中等质量 (推荐)", "高质量 (轻度优化)"
     :return: dict 优化结果
     """
-    if not is_ghostscript_installed():
+    gs_executable = _get_gs_executable()
+    if not gs_executable:
         return {"success": False, "message": "未找到 Ghostscript 可执行文件，请安装 Ghostscript 并确保其在系统 PATH 中。"}
-
-    gs_executable = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
 
     quality_map = {
         "低质量 (最大压缩)": "/screen",
@@ -206,10 +205,9 @@ def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, progress_ca
     :param progress_callback: 进度回调函数，接收 0-100 整数
     :return: dict 合并结果
     """
-    if not is_ghostscript_installed():
+    gs_executable = _get_gs_executable()
+    if not gs_executable:
         return {"success": False, "message": "未找到 Ghostscript 可执行文件，请安装 Ghostscript 并确保其在系统 PATH 中。"}
-
-    gs_executable = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
 
     cmd = [
         gs_executable,
