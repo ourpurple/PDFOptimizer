@@ -1,2 +1,4 @@
 dist/
 PDFOptimizer.spec
+.gitattributes
+.gitignore
