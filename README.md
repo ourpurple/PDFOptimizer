@@ -116,3 +116,7 @@
     ```bash
     pyinstaller main.py --onefile --windowed --name PDFOptimizer --add-data "ui/style.qss;."
     ```    最终的可执行文件会生成在 `dist` 目录下。
+
+## 📝 授权协议
+
+本项目基于 [MIT 授权协议](LICENSE) 开源。
