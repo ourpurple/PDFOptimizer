@@ -16,6 +16,10 @@
 - **跨平台**: 使用 PySide6 构建，理论上可以打包成在 Windows, macOS, Linux 上运行的程序。
 - **无需安装**: 提供单文件绿色版，下载即用，无需安装。
 
+## 📸 软件截图
+
+![软件运行界面](http://pic.mathe.cn/2025/06/20/b42ba7cda750b.jpg)
+
 ## 🚀 使用方法
 
 1.  从 `dist` 目录下载 `PDFOptimizer.exe` 文件。
