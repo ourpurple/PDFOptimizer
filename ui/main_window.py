@@ -300,7 +300,7 @@ class MainWindow(QMainWindow):
     <p style='font-size:9pt;'><b>版本:</b> {self.app_version}</p>
     <p style='font-size:9pt;'><b>作者:</b> WanderInDoor</p>
     <p style='font-size:9pt;'><b>联系方式:</b> 76757488@qq.com</p>
-    <p style='font-size:9pt;'><b>源代码:</b> <a href="https://github.com/WanderInDoor/PDFOptimizer">https://github.com/WanderInDoor/PDFOptimizer</a></p>
+    <p style='font-size:9pt;'><b>源代码:</b> <a href="https://github.com/ourpurple/PDFOptimizer">https://github.com/ourpurple/PDFOptimizer</a></p>
     <hr>
     <p style='font-size:8pt; color:grey;'>基于 PySide6, PyMuPDF, Pikepdf, 和 Ghostscript 构建。</p>
 </div>
