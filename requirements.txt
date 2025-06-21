@@ -1,4 +1,2 @@
 PySide6
 pikepdf
-PyMuPDF
-Pillow

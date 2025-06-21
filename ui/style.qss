@@ -1,90 +1,123 @@
 QMainWindow {
-    background-color: #f5f5f5;
+    background-color: #FAF0E6; /* Linen */
 }
 
 QTabWidget::pane {
-    border: 1px solid #cccccc;
-    background: white;
+    border: 1px solid #D2B48C; /* Tan */
+    background: #FFFAF0; /* FloralWhite */
 }
 
 QTabBar::tab {
-    background: #e6e6e6;
-    border: 1px solid #cccccc;
-    padding: 8px 15px;
+    background: #F5DEB3; /* Wheat */
+    border: 1px solid #D2B48C; /* Tan */
+    color: #5C4033; /* Dark Brown */
+    padding: 8px 20px;
     margin-right: 2px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
 }
 
 QTabBar::tab:selected {
-    background: white;
-    border-bottom-color: white;
+    background: #FFFAF0; /* FloralWhite */
+    border-bottom-color: #FFFAF0;
 }
 
 QTableWidget {
-    background-color: white;
-    alternate-background-color: #f9f9f9;
-    border: 1px solid #cccccc;
-    gridline-color: #e6e6e6;
+    background-color: #FFFAF0; /* FloralWhite */
+    alternate-background-color: #FAF0E6; /* Linen */
+    border: 1px solid #D2B48C; /* Tan */
+    gridline-color: #D2B48C;
+    color: #5C4033; /* Dark Brown */
 }
 
 QTableWidget::item {
     padding: 5px;
+    border-bottom: 1px solid #D2B48C; /* Tan */
 }
 
 QTableWidget::item:selected {
-    background-color: #e3f2fd;
-    color: black;
+    background-color: #E9967A; /* Dark Salmon */
+    color: #FFFFFF;
+}
+
+QHeaderView::section {
+    background-color: #F5DEB3; /* Wheat */
+    color: #5C4033; /* Dark Brown */
+    padding: 5px;
+    border: 1px solid #D2B48C; /* Tan */
 }
 
 QPushButton {
-    background-color: #2196f3;
+    background-color: #CD853F; /* Peru */
     color: white;
-    border: none;
+    border: 1px solid #A0522D; /* Sienna */
     padding: 8px 15px;
     border-radius: 4px;
 }
 
 QPushButton:hover {
-    background-color: #1976d2;
+    background-color: #D2B48C; /* Tan */
 }
 
 QPushButton:pressed {
-    background-color: #0d47a1;
+    background-color: #A0522D; /* Sienna */
 }
 
 QPushButton:disabled {
-    background-color: #bbdefb;
-    color: #90caf9;
+    background-color: #DCDCDC; /* Gainsboro */
+    color: #A9A9A9; /* DarkGray */
+    border: 1px solid #C0C0C0; /* Silver */
 }
 
 QProgressBar {
-    border: 1px solid #cccccc;
+    border: 1px solid #D2B48C; /* Tan */
     border-radius: 3px;
     text-align: center;
-    background-color: white;
+    background-color: #F5DEB3; /* Wheat */
+    color: #5C4033; /* Dark Brown */
 }
 
 QProgressBar::chunk {
-    background-color: #2196f3;
+    background-color: #E9967A; /* Dark Salmon */
 }
 
 QComboBox {
-    border: 1px solid #cccccc;
+    border: 1px solid #D2B48C; /* Tan */
     border-radius: 3px;
     padding: 5px;
-    background-color: white;
+    background-color: #F5DEB3; /* Wheat */
+    color: #5C4033; /* Dark Brown */
 }
 
 QComboBox::drop-down {
-    border: none;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
     width: 20px;
+    border-left-width: 1px;
+    border-left-color: #D2B48C;
+    border-left-style: solid;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
 }
 
 QComboBox::down-arrow {
-    image: url(dropdown.png);
+    width: 0; 
+    height: 0; 
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid #5C4033; /* Dark Brown */
+    margin: 0 auto;
+}
+
+QComboBox QAbstractItemView {
+    border: 1px solid #D2B48C; /* Tan */
+    background-color: #FFFAF0; /* FloralWhite */
+    color: #5C4033;
+    selection-background-color: #E9967A; /* Dark Salmon */
 }
 
 QLabel {
-    color: #424242;
+    color: #5C4033; /* Dark Brown */
 }
 
 #gs_status_label {
@@ -92,14 +125,17 @@ QLabel {
     border-radius: 3px;
 }
 
-.success {
-    color: #4caf50;
+QMenu {
+    background-color: #FFFAF0; /* FloralWhite */
+    border: 1px solid #D2B48C; /* Tan */
+    color: #5C4033; /* Dark Brown */
 }
 
-.warning {
-    color: #ff9800;
+QMenu::item {
+    padding: 8px 20px;
 }
 
-.error {
-    color: #f44336;
+QMenu::item:selected {
+    background-color: #E9967A; /* Dark Salmon */
+    color: #FFFFFF;
 }

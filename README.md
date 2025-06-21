@@ -1,112 +1,140 @@
 # PDF Optimizer
 
-**版本: 2.0.0**
+# PDF Optimizer - A Powerful PDF Optimization Tool
 
-一款功能强大的多功能PDF桌面工具，旨在提供一个简单、高效的解决方案，用于优化、转换和合并PDF文件。
+A powerful PDF optimization tool that supports PDF compression, merging, and text-to-curves conversion.
 
-![软件运行界面](http://pic.mathe.cn/2025/06/20/b42ba7cda750b.jpg)
+## Key Features
 
----
+- 📦 **PDF File Compression and Optimization**
+  - Supports three quality presets: Low Quality (Maximum Compression), Medium Quality (Recommended), High Quality (Light Optimization)
+  - Supports both `pikepdf` and `Ghostscript` optimization engines
 
-## 核心功能
+- 🔄 **PDF File Merging**
+  - Supports merging multiple PDF files
+  - Supports drag-and-drop sorting to determine the merge order
 
-- **PDF 压缩优化**:
-    - **双引擎支持**:
-        - **标准引擎 (PyMuPDF)**: 通过有损图像压缩和无损PDF结构优化来平衡速度和压缩率。
-        - **Ghostscript 引擎**: 利用强大的 Ghostscript 进行深度优化，提供与标准引擎不同的优化策略。
-    - **多种质量预设**: 提供“低质量”、“中等质量”和“高质量”三种预设，以满足不同场景的需求。
+- ✏️ **PDF Text to Curves**
+  - Uses Ghostscript to convert text into curves
+  - Ensures font display consistency
 
-- **PDF 文本转曲**:
-    - **依赖 Ghostscript**: 调用行业标准的 Ghostscript 将PDF中的所有文本转换为矢量路径，以确保打印或跨平台查看时的一致性。
+- 🎨 **User-Friendly Interface**
+  - Clean and intuitive user interface
+  - Supports file drag-and-drop
+  - Real-time display of processing progress
+  - Detailed feedback on processing results
 
-- **PDF 文件合并**:
-    - **双引擎支持**:
-        - **标准引擎 (Pikepdf)**: 快速、可靠地合并多个PDF文件。
-        - **Ghostscript 引擎**: 提供另一种合并文件的策略。
-    - **拖拽排序**: 在合并前，您可以通过拖拽文件列表来轻松调整合并顺序。
+## System Requirements
 
-## 用户体验特性
+- Windows Operating System
+- Python 3.7+
+- Ghostscript (Optional, but recommended for full functionality)
 
-- **直观的界面**: 简洁明了的布局，所有核心功能一目了然。
-- **批量处理**: 支持一次性添加和处理多个文件，大大提高工作效率。
-- **实时反馈**:
-    - 通过进度条和状态列实时更新每个文件的处理状态。
-    - 优化完成后，清晰地显示原始大小、优化后大小和压缩率。
-    - 任务失败时，状态列和提示框（Tooltip）会显示详细的错误信息，便于排查问题。
-- **Ghostscript 自动检测**: 程序启动时会自动检测 Ghostscript 是否安装，并在界面右下角提供清晰的状态提示，相关功能会根据检测结果动态启用或禁用。
-- **无需安装**: 提供单文件绿色版，下载即用。
+## Installation
 
----
+1. Clone or download this project
+```bash
+git clone https://github.com/yourusername/PDFOptimizer.git
+```
 
-## 🚀 快速上手
+2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
 
-1.  从发布页面下载最新的可执行文件。
-2.  双击运行程序。
-3.  点击 **"选择 PDF 文件"** 按钮，将一个或多个文件添加到列表中。
-4.  根据您的需求执行操作:
-    - **优化**: 在界面顶部选择“优化质量”和“引擎”，然后点击 **"开始优化"**。
-    - **转曲**: 确保已安装 Ghostscript，然后点击 **"开始转曲"**。
-    - **合并**: 如果需要，拖拽列表中的文件以调整顺序，然后点击 **"合并 PDF"**，并选择保存位置。
-5.  处理完成后，生成的新文件将保存在您指定的位置（合并）或原始文件所在的目录（优化/转曲）。文件名将包含后缀以区分，例如：
-    - `_optimized_pymupdf` (标准引擎优化)
-    - `_optimized_ghostscript` (Ghostscript 引擎优化)
-    - `_curved_ghostscript` (Ghostscript 转曲)
+3. Install Ghostscript (Optional)
+- Download and install from the [Ghostscript official website](https://www.ghostscript.com/releases/gsdnld.html)
+- Make sure Ghostscript is added to the system's PATH environment variable
 
----
+## Usage
 
-## 🔧 技术实现
+1. Run the program
+```bash
+python main.py
+```
 
-本工具主要基于 Python 和 PySide6 构建，其核心功能通过调用以下库和工具实现：
+2. PDF File Optimization
+   - Click "Select Files" or drag and drop PDF files into the program window
+   - Select the desired quality preset
+   - Select the optimization engine (pikepdf or Ghostscript)
+   - Click "Start Optimization"
 
-- **标准引擎 (优化与合并)**:
-    - **`PyMuPDF`**: 用于在优化过程中提取和替换PDF中的图像。
-    - **`Pikepdf`**: 用于执行PDF的无损结构优化（如对象流压缩、线性化）和文件合并。
+3. PDF File Merging
+   - Add multiple PDF files
+   - Adjust the file order by dragging and dropping
+   - Click "Merge PDFs"
 
-- **Ghostscript 引擎 (优化、转曲与合并)**:
-    - **`subprocess`**: 通过此模块调用外部的 Ghostscript 命令行程序。
-    - **优化**: 使用 `-dPDFSETTINGS` 参数 (如 `/screen`, `/ebook`, `/prepress`) 来应用不同的预设优化策略。
-    - **转曲**: 使用 `-dNoOutputFonts` 参数将文本转换为矢量路径。
-    - **合并**: 调用 Ghostscript 的标准命令来合并文件列表。
+4. PDF Text to Curves
+   - Add the PDF files to be processed
+   - Click "Convert to Curves"
+   - Wait for the process to complete
 
----
+## Notes
 
-## 🛠️ 开发与构建
+- It is recommended to back up important files before processing.
+- Processing large files may take a long time, please be patient.
+- The Ghostscript engine may provide better compression results in some cases, but it may be slower than pikepdf.
+- The text-to-curves feature depends on Ghostscript; it cannot be used if Ghostscript is not installed.
 
-如果您希望对本项目进行二次开发，请遵循以下步骤。
+## Implementation Details
 
-**环境要求**: Python 3.x。如果需要使用或测试 Ghostscript 相关功能，请确保其已安装并已配置好系统 `PATH` 环境变量。
+- **PDF Optimization (pikepdf Engine)**
+  - Uses `pikepdf.open(input_path)` to open the source file, and sets `compress_streams`, `object_stream_mode`, and `linearize` parameters based on three quality presets (Low/Medium/High).
+  - Calls `pdf.save(output_path, ...)` to write the optimized PDF.
 
-1.  **克隆仓库**
+- **PDF Optimization (Ghostscript Engine)**
+  - Uses `_get_gs_executable` to find the Ghostscript executable, with the following priority: `GHOSTSCRIPT_EXECUTABLE` environment variable > PyInstaller bundled path > `shutil.which` in system PATH.
+  - Calls `subprocess.Popen` to execute the Ghostscript command line:
     ```bash
-    git clone https://github.com/ourpurple/PDFOptimizer.git
-    cd PDFOptimizer
+    gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/screen|/ebook|/prepress -dNOPAUSE -dBATCH -dQUIET -sOutputFile=output.pdf input.pdf
+    ```
+  - Determines the optimization result based on the return code and calculates the file sizes before and after compression using `os.path.getsize`.
+
+- **PDF Merging (pikepdf Engine)**
+  - Uses `pikepdf.Pdf.new()` to create an empty PDF, iterates through the input file list, appends all pages to the target PDF using `pdf.pages.extend(src.pages)`, and finally saves with `pdf.save(output_path)`.
+
+- **PDF Merging (Ghostscript Engine)**
+  - Calls Ghostscript to execute the command line:
+    ```bash
+    gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile=merged.pdf file1.pdf file2.pdf ...
+    ```
+  - Determines the merge result based on the return code and file size.
+
+- **PDF Text to Curves**
+  - Based on the Ghostscript command line, adds the `-dNoOutputFonts` parameter to convert all text to curves, ensuring cross-platform font consistency:
+    ```bash
+    gs -sDEVICE=pdfwrite -o curves.pdf -dNOPAUSE -dBATCH -dQUIET -dNoOutputFonts input.pdf
     ```
 
-2.  **创建并激活虚拟环境**
+- **Graphical User Interface (PySide6)**
+  - Uses `QMainWindow` and `QTabWidget` to build the main window and three functional tabs.
+  - Employs a custom `SortableTableWidget` that overrides drag-and-drop events (`dragEnterEvent`, `dragMoveEvent`, `dropEvent`) and the context menu (`contextMenuEvent`) to support drag-and-drop sorting, deletion, moving up/down, and opening the file location.
+  - Implements multithreading with `QThread` (encapsulated in `BaseWorker`) and uses `Signal` to update the progress bar and table status in real-time.
+  - Resource paths are handled by `resource_path` to be compatible with both the development environment and the PyInstaller `_MEIPASS` directory.
+
+- **Packaging as an Executable (PyInstaller)**
+  - Install PyInstaller:
     ```bash
-    python -m venv venv
-    venv\Scripts\activate  # Windows
-    # source venv/bin/activate  # macOS/Linux
+    pip install pyinstaller
     ```
-
-3.  **安装依赖**
+  - Run in the project root directory:
     ```bash
-    pip install -r requirements.txt
+    pyinstaller --name PDFOptimizer --onefile --windowed --icon="app.ico" --add-data "ui/style.qss;ui" --add-data "app.ico;." main.py
     ```
+  - To ensure Ghostscript is available after packaging, you can copy its `bin` and `lib` folders to the project root and add them via `--add-data` during packaging.
+  - The packaged result is located at `dist/PDFOptimizer.exe`, which is a single-file executable containing all dependencies.
 
-4.  **运行程序 (开发模式)**
-    ```bash
-    python main.py
-    ```
+## Technology Stack
 
-5.  **打包成单文件 .exe (使用 PyInstaller)**
-    ```bash
-    pyinstaller main.py --onefile --windowed --name PDFOptimizer --add-data "ui/style.qss;." --add-data "app.ico;."
-    ```
-    最终的可执行文件会生成在 `dist` 目录下。
+- Python 3
+- PySide6 (Qt for Python)
+- pikepdf
+- Ghostscript
 
----
+## Feedback and Suggestions
 
-## 📝 授权协议
+If you encounter any problems during use, or have any suggestions for features, please feel free to open an Issue or Pull Request.
 
-本项目基于 [MIT 授权协议](LICENSE) 开源。
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
