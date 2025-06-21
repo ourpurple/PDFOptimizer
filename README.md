@@ -23,8 +23,12 @@ A powerful PDF optimization tool that supports PDF compression, merging, and tex
   - Supports file drag-and-drop
   - Real-time display of processing progress
   - Detailed feedback on processing results
-
-## System Requirements
+  
+  ## Screenshot
+  
+  ![Screenshot](http://pic.mathe.cn/2025/06/21/054a212c338bd.jpg)
+  
+  ## System Requirements
 
 - Windows Operating System
 - Python 3.7+
