@@ -121,7 +121,7 @@ python main.py
     ```  
   - 在项目根目录运行：  
     ```bash
-    pyinstaller --name PDFOptimizer --onefile --windowed --icon="app.ico" --add-data "ui/style.qss;ui" --add-data "app.ico;." main.py
+     venv\Scripts\pyinstaller --name PDFOptimizer --noconfirm --onefile --windowed --icon="ui/app.ico" --add-data "ui/style.qss;ui" --add-data "ui/app.ico;ui" main.py
     ```
   - 为确保 `Ghostscript` 在打包后可用，可以将其安装目录下的 `bin` 和 `lib` 文件夹复制到项目根目录，并在打包时通过 `--add-data` 添加。
   - 打包结果位于 `dist/PDFOptimizer.exe`，是一个包含所有依赖的单文件可执行程序。

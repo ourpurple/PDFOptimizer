@@ -123,7 +123,7 @@ python main.py
     ```
   - Run in the project root directory:
     ```bash
-    pyinstaller --name PDFOptimizer --onefile --windowed --icon="app.ico" --add-data "ui/style.qss;ui" --add-data "app.ico;." main.py
+     venv\Scripts\pyinstaller --name PDFOptimizer --noconfirm --onefile --windowed --icon="ui/app.ico" --add-data "ui/style.qss;ui" --add-data "ui/app.ico;ui" main.py
     ```
   - To ensure Ghostscript is available after packaging, you can copy its `bin` and `lib` folders to the project root and add them via `--add-data` during packaging.
   - The packaged result is located at `dist/PDFOptimizer.exe`, which is a single-file executable containing all dependencies.

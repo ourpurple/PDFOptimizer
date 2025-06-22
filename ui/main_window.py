@@ -338,7 +338,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"PDF Optimizer - {self.app_version}")
         self.setGeometry(100, 100, 1080, 675)
 
-        icon_path = resource_path("app.ico")
+        icon_path = resource_path("ui/app.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
