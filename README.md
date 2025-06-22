@@ -1,4 +1,3 @@
-# PDF Optimizer
 
 # PDF Optimizer - A Powerful PDF Optimization Tool
 
