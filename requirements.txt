@@ -1,2 +1,3 @@
-PySide6==6.7.0
-pikepdf==8.13.0
+PySide6==6.9.1
+pikepdf==9.9.0
+PyMuPDF==1.26.1

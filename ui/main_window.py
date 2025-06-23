@@ -15,6 +15,8 @@ from core import (
     optimize_pdf_with_ghostscript,
     merge_pdfs,
     merge_pdfs_with_ghostscript,
+    convert_pdf_to_images,
+    split_pdf,
     __version__,
 )
 from .custom_dialog import CustomMessageBox
@@ -119,7 +121,7 @@ class SortableTableWidget(QTableWidget):
         if not selected_items:
             return
 
-        row = selected_items[0].row()
+        row = selected_items.row()
         item = self.item(row, 0)
         if item:
             file_path = item.data(Qt.ItemDataRole.UserRole)
@@ -160,8 +162,9 @@ class SortableTableWidget(QTableWidget):
             self.move_row(row, row - 1)
         
         self.clearSelection()
-        for row in selected_rows:
-            self.selectRow(row - 1)
+        new_selection = [row - 1 for row in selected_rows]
+        for row in new_selection:
+            self.selectRow(row)
 
     def move_row_down(self):
         """向下移动选定的行"""
@@ -173,8 +176,9 @@ class SortableTableWidget(QTableWidget):
             self.move_row(row, row + 1)
 
         self.clearSelection()
-        for row in selected_rows:
-            self.selectRow(row + 1)
+        new_selection = [row + 1 for row in selected_rows]
+        for row in new_selection:
+            self.selectRow(row)
     
     def move_row(self, source_row, dest_row):
         """移动一行"""
@@ -337,6 +341,94 @@ class CurvesWorker(BaseWorker):
             self.total_progress.emit(progress)
 
 
+class PdfToImageWorker(BaseWorker):
+    """PDF转图片工作线程"""
+    progress_updated = Signal(int, int, int)  # file_index, current_page, total_pages
+
+    def __init__(self, files, output_dir, image_format, dpi):
+        super().__init__()
+        self.files = files
+        self.output_dir = output_dir
+        self.image_format = image_format
+        self.dpi = dpi
+
+    def run(self):
+        total_files = len(self.files)
+        for i, file_path in enumerate(self.files):
+            if not self._is_running:
+                break
+
+            try:
+                result = convert_pdf_to_images(
+                    file_path,
+                    self.output_dir,
+                    self.image_format,
+                    self.dpi,
+                    lambda current, total: self.progress_updated.emit(i, current, total)
+                )
+                
+                if result.get("success"):
+                    self.file_finished.emit(i, {
+                        "success": True,
+                        "message": result.get("message", "转换成功")
+                    })
+                else:
+                    self.file_finished.emit(i, {
+                        "success": False,
+                        "message": result.get("message", "未知错误")
+                    })
+            except Exception as e:
+                self.file_finished.emit(i, {
+                    "success": False,
+                    "message": str(e)
+                })
+
+            progress = int((i + 1) / total_files * 100)
+            self.total_progress.emit(progress)
+
+
+class SplitWorker(BaseWorker):
+    """PDF分割工作线程"""
+    progress_updated = Signal(int, int, int)
+
+    def __init__(self, files, output_dir):
+        super().__init__()
+        self.files = files
+        self.output_dir = output_dir
+
+    def run(self):
+        total_files = len(self.files)
+        for i, file_path in enumerate(self.files):
+            if not self._is_running:
+                break
+
+            try:
+                result = split_pdf(
+                    file_path,
+                    self.output_dir,
+                    lambda current, total: self.progress_updated.emit(i, current, total)
+                )
+
+                if result.get("success"):
+                    self.file_finished.emit(i, {
+                        "success": True,
+                        "message": result.get("message", "分割成功")
+                    })
+                else:
+                    self.file_finished.emit(i, {
+                        "success": False,
+                        "message": result.get("message", "未知错误")
+                    })
+            except Exception as e:
+                self.file_finished.emit(i, {
+                    "success": False,
+                    "message": str(e)
+                })
+
+            progress = int((i + 1) / total_files * 100)
+            self.total_progress.emit(progress)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -358,14 +450,20 @@ class MainWindow(QMainWindow):
         self.optimize_tab = QWidget()
         self.merge_tab = QWidget()
         self.curves_tab = QWidget()
+        self.pdf_to_image_tab = QWidget()
+        self.split_tab = QWidget()
 
         self._setup_optimize_tab()
         self._setup_merge_tab()
         self._setup_curves_tab()
+        self._setup_pdf_to_image_tab()
+        self._setup_split_tab()
 
         self.tab_widget.addTab(self.optimize_tab, "PDF优化")
         self.tab_widget.addTab(self.merge_tab, "PDF合并")
         self.tab_widget.addTab(self.curves_tab, "PDF转曲")
+        self.tab_widget.addTab(self.pdf_to_image_tab, "PDF转图片")
+        self.tab_widget.addTab(self.split_tab, "PDF分割")
 
         self._setup_tab_connections()
 
@@ -408,6 +506,10 @@ class MainWindow(QMainWindow):
                 self.add_files_to_merge(files)
             elif current_tab == 2:
                 self.add_files_to_curves(files)
+            elif current_tab == 3:
+                self.add_files_to_pdf_to_image(files)
+            elif current_tab == 4:
+                self.add_files_to_split(files)
 
     def _reset_optimize_ui(self):
         self.progress_bar.setValue(0)
@@ -420,6 +522,16 @@ class MainWindow(QMainWindow):
         self.curves_progress_bar.setValue(0)
         for row in range(self.curves_table.rowCount()):
             self.curves_table.setItem(row, 2, QTableWidgetItem("排队中..."))
+
+    def _reset_pdf_to_image_ui(self):
+        self.pdf_to_image_progress_bar.setValue(0)
+        for row in range(self.pdf_to_image_table.rowCount()):
+            self.pdf_to_image_table.setItem(row, 1, QTableWidgetItem("排队中..."))
+
+    def _reset_split_ui(self):
+        self.split_progress_bar.setValue(0)
+        for row in range(self.split_table.rowCount()):
+            self.split_table.setItem(row, 1, QTableWidgetItem("排队中..."))
 
     def _update_controls_state(self, is_task_running=False):
         enable_when_not_running = not is_task_running
@@ -442,9 +554,23 @@ class MainWindow(QMainWindow):
         self.curves_clear_button.setEnabled(enable_when_not_running and curves_files_exist)
         self.curves_stop_button.setEnabled(is_task_running)
 
+        pdf_to_image_files_exist = self.pdf_to_image_table.rowCount() > 0
+        self.pdf_to_image_button.setEnabled(enable_when_not_running and pdf_to_image_files_exist)
+        self.pdf_to_image_clear_button.setEnabled(enable_when_not_running and pdf_to_image_files_exist)
+        self.pdf_to_image_stop_button.setEnabled(is_task_running)
+        self.image_format_combo.setEnabled(enable_when_not_running)
+        self.dpi_combo.setEnabled(enable_when_not_running)
+
+        split_files_exist = self.split_table.rowCount() > 0
+        self.split_button.setEnabled(enable_when_not_running and split_files_exist)
+        self.split_clear_button.setEnabled(enable_when_not_running and split_files_exist)
+        self.split_stop_button.setEnabled(is_task_running)
+
         self.select_button.setEnabled(enable_when_not_running)
         self.merge_select_button.setEnabled(enable_when_not_running)
         self.curves_select_button.setEnabled(enable_when_not_running)
+        self.pdf_to_image_select_button.setEnabled(enable_when_not_running)
+        self.split_select_button.setEnabled(enable_when_not_running)
 
     def start_optimization(self):
         if self.file_table.rowCount() == 0:
@@ -485,6 +611,52 @@ class MainWindow(QMainWindow):
         self.curves_worker.start()
         self.status_label.setText("正在转曲 (使用 Ghostscript)...")
 
+    def start_pdf_to_image_conversion(self):
+        if self.pdf_to_image_table.rowCount() == 0:
+            CustomMessageBox.warning(self, "警告", "请先选择要转换的PDF文件。")
+            return
+
+        output_dir = QFileDialog.getExistingDirectory(self, "选择图片保存文件夹")
+        if not output_dir:
+            return
+
+        self._reset_pdf_to_image_ui()
+        self._update_controls_state(is_task_running=True)
+
+        files = [self.pdf_to_image_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.pdf_to_image_table.rowCount())]
+        image_format = self.image_format_combo.currentText().lower()
+        dpi = int(self.dpi_combo.currentText())
+
+        self.pdf_to_image_worker = PdfToImageWorker(files, output_dir, image_format, dpi)
+        self.pdf_to_image_worker.total_progress.connect(self.pdf_to_image_progress_bar.setValue)
+        self.pdf_to_image_worker.progress_updated.connect(self.on_pdf_to_image_progress)
+        self.pdf_to_image_worker.file_finished.connect(self.on_pdf_to_image_file_finished)
+        self.pdf_to_image_worker.finished.connect(self.on_pdf_to_image_all_finished)
+        self.pdf_to_image_worker.start()
+        self.status_label.setText("正在将PDF转换为图片...")
+
+    def start_split(self):
+        if self.split_table.rowCount() == 0:
+            CustomMessageBox.warning(self, "警告", "请先选择要分割的PDF文件。")
+            return
+
+        output_dir = QFileDialog.getExistingDirectory(self, "选择分割后文件的保存文件夹")
+        if not output_dir:
+            return
+
+        self._reset_split_ui()
+        self._update_controls_state(is_task_running=True)
+
+        files = [self.split_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.split_table.rowCount())]
+
+        self.split_worker = SplitWorker(files, output_dir)
+        self.split_worker.total_progress.connect(self.split_progress_bar.setValue)
+        self.split_worker.progress_updated.connect(self.on_split_progress)
+        self.split_worker.file_finished.connect(self.on_split_file_finished)
+        self.split_worker.finished.connect(self.on_split_all_finished)
+        self.split_worker.start()
+        self.status_label.setText("正在分割PDF文件...")
+
     def on_optimize_file_finished(self, row, result):
         if result.get("success"):
             orig_size = result["original_size"] / (1024 * 1024)
@@ -510,6 +682,36 @@ class MainWindow(QMainWindow):
             self.curves_table.item(row, 2).setToolTip(error_message)
             CustomMessageBox.warning(self, "转曲失败", f"文件处理失败：\n{error_message}")
 
+    def on_pdf_to_image_file_finished(self, row, result):
+        if result.get("success"):
+            self.pdf_to_image_table.setItem(row, 1, QTableWidgetItem("转换成功"))
+            self.pdf_to_image_table.item(row, 1).setToolTip(result.get("message"))
+        else:
+            self.pdf_to_image_table.setItem(row, 1, QTableWidgetItem("转换失败"))
+            error_message = result.get("message", "未知错误")
+            self.pdf_to_image_table.item(row, 1).setToolTip(error_message)
+            CustomMessageBox.warning(self, "转换失败", f"文件处理失败：\n{error_message}")
+
+    def on_pdf_to_image_progress(self, file_index, current_page, total_pages):
+        if total_pages > 0:
+            progress_percentage = int((current_page / total_pages) * 100)
+            self.pdf_to_image_table.setItem(file_index, 1, QTableWidgetItem(f"转换中... {progress_percentage}%"))
+
+    def on_split_file_finished(self, row, result):
+        if result.get("success"):
+            self.split_table.setItem(row, 1, QTableWidgetItem("分割成功"))
+            self.split_table.item(row, 1).setToolTip(result.get("message"))
+        else:
+            self.split_table.setItem(row, 1, QTableWidgetItem("分割失败"))
+            error_message = result.get("message", "未知错误")
+            self.split_table.item(row, 1).setToolTip(error_message)
+            CustomMessageBox.warning(self, "分割失败", f"文件处理失败：\n{error_message}")
+
+    def on_split_progress(self, file_index, current_page, total_pages):
+        if total_pages > 0:
+            progress_percentage = int((current_page / total_pages) * 100)
+            self.split_table.setItem(file_index, 1, QTableWidgetItem(f"分割中... {progress_percentage}%"))
+
     def on_optimize_all_finished(self):
         self.status_label.setText("PDF优化完成！")
         self.progress_bar.setValue(100)
@@ -523,6 +725,16 @@ class MainWindow(QMainWindow):
     def on_curves_all_finished(self):
         self.status_label.setText("PDF转曲完成！")
         self.curves_progress_bar.setValue(100)
+        self._update_controls_state()
+
+    def on_pdf_to_image_all_finished(self):
+        self.status_label.setText("PDF转图片完成！")
+        self.pdf_to_image_progress_bar.setValue(100)
+        self._update_controls_state()
+
+    def on_split_all_finished(self):
+        self.status_label.setText("PDF分割完成！")
+        self.split_progress_bar.setValue(100)
         self._update_controls_state()
 
     def clear_current_list(self):
@@ -539,6 +751,14 @@ class MainWindow(QMainWindow):
             self.curves_table.setRowCount(0)
             self.curves_progress_bar.setValue(0)
             self.status_label.setText("请选择要转曲的PDF文件...")
+        elif current_tab == 3:
+            self.pdf_to_image_table.setRowCount(0)
+            self.pdf_to_image_progress_bar.setValue(0)
+            self.status_label.setText("请选择要转换为图片的PDF文件...")
+        elif current_tab == 4:
+            self.split_table.setRowCount(0)
+            self.split_progress_bar.setValue(0)
+            self.status_label.setText("请选择要分割的PDF文件...")
         self._update_controls_state()
 
     def show_about_dialog(self):
@@ -598,6 +818,10 @@ class MainWindow(QMainWindow):
                 self.add_files_to_merge(files)
             elif current_tab == 2:
                 self.add_files_to_curves(files)
+            elif current_tab == 3:
+                self.add_files_to_pdf_to_image(files)
+            elif current_tab == 4:
+                self.add_files_to_split(files)
 
     def add_files_to_optimize(self, files):
         current_row = self.file_table.rowCount()
@@ -647,6 +871,32 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"已添加 {len(files)} 个文件到转曲列表。")
         self._update_controls_state()
 
+    def add_files_to_pdf_to_image(self, files):
+        current_row = self.pdf_to_image_table.rowCount()
+        self.pdf_to_image_table.setRowCount(current_row + len(files))
+
+        for i, file_path in enumerate(files):
+            row = current_row + i
+            self.pdf_to_image_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
+            self.pdf_to_image_table.setItem(row, 1, QTableWidgetItem("等待中..."))
+            self.pdf_to_image_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, file_path)
+        
+        self.status_label.setText(f"已添加 {len(files)} 个文件到转换列表。")
+        self._update_controls_state()
+
+    def add_files_to_split(self, files):
+        current_row = self.split_table.rowCount()
+        self.split_table.setRowCount(current_row + len(files))
+
+        for i, file_path in enumerate(files):
+            row = current_row + i
+            self.split_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
+            self.split_table.setItem(row, 1, QTableWidgetItem("等待中..."))
+            self.split_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, file_path)
+        
+        self.status_label.setText(f"已添加 {len(files)} 个文件到分割列表。")
+        self._update_controls_state()
+
     def closeEvent(self, event):
         if hasattr(self, 'optimize_worker') and self.optimize_worker.isRunning():
             self.optimize_worker.stop()
@@ -654,6 +904,10 @@ class MainWindow(QMainWindow):
             self.merge_worker.stop()
         if hasattr(self, 'curves_worker') and self.curves_worker.isRunning():
             self.curves_worker.stop()
+        if hasattr(self, 'pdf_to_image_worker') and self.pdf_to_image_worker.isRunning():
+            self.pdf_to_image_worker.stop()
+        if hasattr(self, 'split_worker') and self.split_worker.isRunning():
+            self.split_worker.stop()
         event.accept()
     
     def stop_current_task(self):
@@ -667,6 +921,12 @@ class MainWindow(QMainWindow):
         elif current_tab == 2 and hasattr(self, 'curves_worker') and self.curves_worker.isRunning():
             self.curves_worker.stop()
             self.status_label.setText("转曲任务已停止")
+        elif current_tab == 3 and hasattr(self, 'pdf_to_image_worker') and self.pdf_to_image_worker.isRunning():
+            self.pdf_to_image_worker.stop()
+            self.status_label.setText("转换任务已停止")
+        elif current_tab == 4 and hasattr(self, 'split_worker') and self.split_worker.isRunning():
+            self.split_worker.stop()
+            self.status_label.setText("分割任务已停止")
         self._update_controls_state(is_task_running=False)
 
     def start_merge_pdfs(self):
@@ -855,6 +1115,98 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.curves_stop_button)
         
         curves_layout.addLayout(controls_layout)
+
+    def _setup_pdf_to_image_tab(self):
+        pdf_to_image_layout = QVBoxLayout(self.pdf_to_image_tab)
+
+        file_select_layout = QHBoxLayout()
+        self.pdf_to_image_select_button = QPushButton("选择PDF文件")
+        self.pdf_to_image_select_button.clicked.connect(self.select_files)
+        file_select_layout.addWidget(self.pdf_to_image_select_button)
+        file_select_layout.addStretch()
+        pdf_to_image_layout.addLayout(file_select_layout)
+
+        self.pdf_to_image_table = SortableTableWidget()
+        self.pdf_to_image_table.setColumnCount(2)
+        self.pdf_to_image_table.setHorizontalHeaderLabels(["文件名", "状态"])
+        self.pdf_to_image_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.pdf_to_image_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.pdf_to_image_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        pdf_to_image_layout.addWidget(self.pdf_to_image_table)
+
+        self.pdf_to_image_progress_bar = QProgressBar()
+        self.pdf_to_image_progress_bar.setAlignment(Qt.AlignCenter)
+        pdf_to_image_layout.addWidget(self.pdf_to_image_progress_bar)
+
+        controls_layout = QHBoxLayout()
+
+        image_format_label = QLabel("图片格式:")
+        controls_layout.addWidget(image_format_label)
+        self.image_format_combo = QComboBox()
+        self.image_format_combo.addItems(["JPG", "PNG"])
+        controls_layout.addWidget(self.image_format_combo)
+
+        dpi_label = QLabel("分辨率 (DPI):")
+        controls_layout.addWidget(dpi_label)
+        self.dpi_combo = QComboBox()
+        self.dpi_combo.addItems(["72", "96", "150", "300", "600"])
+        self.dpi_combo.setCurrentText("300")
+        controls_layout.addWidget(self.dpi_combo)
+
+        controls_layout.addStretch()
+
+        self.pdf_to_image_clear_button = QPushButton("清空列表")
+        self.pdf_to_image_clear_button.clicked.connect(self.clear_current_list)
+        controls_layout.addWidget(self.pdf_to_image_clear_button)
+
+        self.pdf_to_image_button = QPushButton("开始转换")
+        self.pdf_to_image_button.clicked.connect(self.start_pdf_to_image_conversion)
+        controls_layout.addWidget(self.pdf_to_image_button)
+
+        self.pdf_to_image_stop_button = QPushButton("停止")
+        self.pdf_to_image_stop_button.clicked.connect(self.stop_current_task)
+        controls_layout.addWidget(self.pdf_to_image_stop_button)
+        
+        pdf_to_image_layout.addLayout(controls_layout)
+
+    def _setup_split_tab(self):
+        split_layout = QVBoxLayout(self.split_tab)
+
+        file_select_layout = QHBoxLayout()
+        self.split_select_button = QPushButton("选择PDF文件")
+        self.split_select_button.clicked.connect(self.select_files)
+        file_select_layout.addWidget(self.split_select_button)
+        file_select_layout.addStretch()
+        split_layout.addLayout(file_select_layout)
+
+        self.split_table = SortableTableWidget()
+        self.split_table.setColumnCount(2)
+        self.split_table.setHorizontalHeaderLabels(["文件名", "状态"])
+        self.split_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.split_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.split_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        split_layout.addWidget(self.split_table)
+
+        self.split_progress_bar = QProgressBar()
+        self.split_progress_bar.setAlignment(Qt.AlignCenter)
+        split_layout.addWidget(self.split_progress_bar)
+
+        controls_layout = QHBoxLayout()
+        controls_layout.addStretch()
+
+        self.split_clear_button = QPushButton("清空列表")
+        self.split_clear_button.clicked.connect(self.clear_current_list)
+        controls_layout.addWidget(self.split_clear_button)
+
+        self.split_button = QPushButton("开始分割")
+        self.split_button.clicked.connect(self.start_split)
+        controls_layout.addWidget(self.split_button)
+
+        self.split_stop_button = QPushButton("停止")
+        self.split_stop_button.clicked.connect(self.stop_current_task)
+        controls_layout.addWidget(self.split_stop_button)
+        
+        split_layout.addLayout(controls_layout)
 
     def _setup_tab_connections(self):
         """设置标签页切换事件连接"""
