@@ -1,7 +1,7 @@
 
 # PDF Optimizer - A Powerful PDF Optimization Tool
 
-A powerful PDF optimization tool that supports PDF compression, merging, and text-to-curves conversion.
+A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, and text-to-curves conversion.
 
 ## Key Features
 
@@ -12,14 +12,24 @@ A powerful PDF optimization tool that supports PDF compression, merging, and tex
 - 🔄 **PDF File Merging**
   - Supports merging multiple PDF files
   - Supports drag-and-drop sorting to determine the merge order
+  - Supports both `pikepdf` and `Ghostscript` merging engines
+
+- ✂️ **PDF Splitting**
+  - Splits a multi-page PDF into individual pages
+  - Uses `PyMuPDF` for fast and efficient splitting
+
+- 🖼️ **PDF to Image Conversion**
+  - Converts each page of a PDF into an image
+  - Supports custom DPI and image formats (PNG, JPG)
+  - Uses `PyMuPDF` for high-quality conversion
 
 - ✏️ **PDF Text to Curves**
   - Uses Ghostscript to convert text into curves
   - Ensures font display consistency
 
 - 🎨 **User-Friendly Interface**
-  - Clean and intuitive user interface
-  - Supports file drag-and-drop
+  - Clean and intuitive user interface with tabbed navigation
+  - Supports file drag-and-drop for all functions
   - Real-time display of processing progress
   - Detailed feedback on processing results
   
@@ -65,11 +75,23 @@ python main.py
 3. PDF File Merging
    - Add multiple PDF files
    - Adjust the file order by dragging and dropping
-   - Click "Merge PDFs"
+   - Click "Start Merging"
 
-4. PDF Text to Curves
+4. PDF Splitting
+   - Switch to the "PDF Splitting" tab
+   - Add the PDF file to be split
+   - Click "Start Splitting" and select a folder to save the output files
+
+5. PDF to Image Conversion
+   - Switch to the "PDF to Image" tab
+   - Add the PDF files to be converted
+   - Select the desired image format and DPI
+   - Click "Start Conversion" and select a folder to save the output images
+
+6. PDF Text to Curves
+   - Switch to the "PDF Text to Curves" tab
    - Add the PDF files to be processed
-   - Click "Convert to Curves"
+   - Click "Start Conversion to Curves"
    - Wait for the process to complete
 
 ## Notes
@@ -109,10 +131,17 @@ python main.py
     gs -sDEVICE=pdfwrite -o curves.pdf -dNOPAUSE -dBATCH -dQUIET -dNoOutputFonts input.pdf
     ```
 
+- **PDF Splitting (PyMuPDF Engine)**
+  - Uses `fitz.open()` to open the source PDF, iterates through each page, and creates a new single-page PDF for each page using `new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)`.
+
+- **PDF to Image Conversion (PyMuPDF Engine)**
+  - Uses `fitz.open()` to open the PDF, iterates through each page, and converts each page to a pixmap using `page.get_pixmap(dpi=dpi)`.
+  - Saves the pixmap to the specified image format (PNG/JPG).
+
 - **Graphical User Interface (PySide6)**
-  - Uses `QMainWindow` and `QTabWidget` to build the main window and three functional tabs.
+  - Uses `QMainWindow` and `QTabWidget` to build the main window and five functional tabs (Optimize, Merge, Split, To Image, To Curves).
   - Employs a custom `SortableTableWidget` that overrides drag-and-drop events (`dragEnterEvent`, `dragMoveEvent`, `dropEvent`) and the context menu (`contextMenuEvent`) to support drag-and-drop sorting, deletion, moving up/down, and opening the file location.
-  - Implements multithreading with `QThread` (encapsulated in `BaseWorker`) and uses `Signal` to update the progress bar and table status in real-time.
+  - Implements multithreading with `QThread` (encapsulated in `BaseWorker` and its subclasses like `OptimizeWorker`, `MergeWorker`, etc.) and uses `Signal` to update the progress bar and table status in real-time without blocking the UI.
   - Resource paths are handled by `resource_path` to be compatible with both the development environment and the PyInstaller `_MEIPASS` directory.
 
 - **Packaging as an Executable (PyInstaller)**
@@ -132,6 +161,7 @@ python main.py
 - Python 3
 - PySide6 (Qt for Python)
 - pikepdf
+- PyMuPDF
 - Ghostscript
 
 ## Feedback and Suggestions
