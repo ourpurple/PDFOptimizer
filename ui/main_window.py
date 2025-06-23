@@ -8,10 +8,16 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl
 from PySide6.QtGui import QIcon, QDesktopServices
 import os
-from core.optimizer import (
-    optimize_pdf, convert_to_curves_with_ghostscript, is_ghostscript_installed,
-    optimize_pdf_with_ghostscript, merge_pdfs, merge_pdfs_with_ghostscript
+from core import (
+    optimize_pdf,
+    convert_to_curves_with_ghostscript,
+    is_ghostscript_installed,
+    optimize_pdf_with_ghostscript,
+    merge_pdfs,
+    merge_pdfs_with_ghostscript,
+    __version__,
 )
+from .custom_dialog import CustomMessageBox
 
 class SortableTableWidget(QTableWidget):
     """
@@ -334,7 +340,7 @@ class CurvesWorker(BaseWorker):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.app_version = "v2.4.0"
+        self.app_version = f"v{__version__}"
         self.setWindowTitle(f"PDF Optimizer - {self.app_version}")
         self.setGeometry(100, 100, 1080, 675)
 
@@ -442,7 +448,7 @@ class MainWindow(QMainWindow):
 
     def start_optimization(self):
         if self.file_table.rowCount() == 0:
-            QMessageBox.warning(self, "警告", "请先选择要优化的PDF文件。")
+            CustomMessageBox.warning(self, "警告", "请先选择要优化的PDF文件。")
             return
 
         self._reset_optimize_ui()
@@ -464,7 +470,7 @@ class MainWindow(QMainWindow):
 
     def start_conversion_to_curves(self):
         if self.curves_table.rowCount() == 0:
-            QMessageBox.warning(self, "警告", "请先选择要转曲的PDF文件。")
+            CustomMessageBox.warning(self, "警告", "请先选择要转曲的PDF文件。")
             return
 
         self._reset_curves_ui()
@@ -493,7 +499,7 @@ class MainWindow(QMainWindow):
             self.file_table.setItem(row, 4, QTableWidgetItem("优化失败"))
             error_message = result.get("message", "未知错误")
             self.file_table.item(row, 4).setToolTip(error_message)
-            QMessageBox.warning(self, "优化失败", f"文件处理失败：\n{error_message}")
+            CustomMessageBox.warning(self, "优化失败", f"文件处理失败：\n{error_message}")
             
     def on_curves_file_finished(self, row, result):
         if result.get("success"):
@@ -502,7 +508,7 @@ class MainWindow(QMainWindow):
             self.curves_table.setItem(row, 2, QTableWidgetItem("转曲失败"))
             error_message = result.get("message", "未知错误")
             self.curves_table.item(row, 2).setToolTip(error_message)
-            QMessageBox.warning(self, "转曲失败", f"文件处理失败：\n{error_message}")
+            CustomMessageBox.warning(self, "转曲失败", f"文件处理失败：\n{error_message}")
 
     def on_optimize_all_finished(self):
         self.status_label.setText("PDF优化完成！")
@@ -549,11 +555,7 @@ class MainWindow(QMainWindow):
     <p style='font-size:8pt; color:grey;'>基于 PySide6, Pikepdf 和 Ghostscript 构建。</p>
 </div>
 """
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("关于 PDF Optimizer")
-        msg_box.setTextFormat(Qt.TextFormat.RichText)
-        msg_box.setText(about_text)
-        msg_box.exec()
+        CustomMessageBox.about(self, "关于 PDF Optimizer", about_text)
 
     def apply_stylesheet(self):
         style_path = resource_path("ui/style.qss")
@@ -628,7 +630,7 @@ class MainWindow(QMainWindow):
 
     def add_files_to_curves(self, files):
         if not self.gs_installed:
-            QMessageBox.warning(self, "错误", "未检测到Ghostscript，无法使用转曲功能。")
+            CustomMessageBox.warning(self, "错误", "未检测到Ghostscript，无法使用转曲功能。")
             return
 
         current_row = self.curves_table.rowCount()
@@ -669,7 +671,7 @@ class MainWindow(QMainWindow):
 
     def start_merge_pdfs(self):
         if self.merge_table.rowCount() < 2:
-            QMessageBox.warning(self, "警告", "请至少选择两个PDF文件进行合并。")
+            CustomMessageBox.warning(self, "警告", "请至少选择两个PDF文件进行合并。")
             return
 
         first_file_item = self.merge_table.item(0, 0)
@@ -709,12 +711,12 @@ class MainWindow(QMainWindow):
         if result.get("success"):
             for r in range(self.merge_table.rowCount()):
                  self.merge_table.setItem(r, 1, QTableWidgetItem("合并成功"))
-            QMessageBox.information(self, "成功", f"文件已成功合并到:\n{result.get('output_path')}")
+            CustomMessageBox.information(self, "成功", f"文件已成功合并到:\n{result.get('output_path')}")
         else:
             for r in range(self.merge_table.rowCount()):
                 self.merge_table.setItem(r, 1, QTableWidgetItem("合并失败"))
             error_message = result.get("message", "未知错误")
-            QMessageBox.warning(self, "合并失败", f"合并失败：\n{error_message}")
+            CustomMessageBox.warning(self, "合并失败", f"合并失败：\n{error_message}")
 
     def _setup_optimize_tab(self):
         optimize_layout = QVBoxLayout(self.optimize_tab)
