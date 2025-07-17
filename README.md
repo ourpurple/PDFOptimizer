@@ -42,7 +42,7 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
   
   ## Screenshot
   
-  ![Screenshot](http://pic.mathe.cn/2025/06/21/054a212c338bd.jpg)
+  ![Screenshot](http://pic.mathe.cn/2025/07/17/79d439f3b098b.png)
   
   ## System Requirements
 
