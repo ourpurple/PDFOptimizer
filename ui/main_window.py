@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget,
     QLabel, QFileDialog, QTableWidget, QProgressBar, QHBoxLayout,
     QComboBox, QHeaderView, QTableWidgetItem, QMessageBox, QAbstractItemView,
-    QTabWidget, QMenu
+    QTabWidget, QMenu, QCheckBox, QDialog
 )
 from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl
 from PySide6.QtGui import QIcon, QDesktopServices
@@ -18,8 +18,10 @@ from core import (
     convert_pdf_to_images,
     split_pdf,
     __version__,
+    batch_add_bookmarks_to_pdfs
 )
-from .custom_dialog import CustomMessageBox
+from .custom_dialog import CustomMessageBox, BookmarkEditDialog
+import json
 
 class SortableTableWidget(QTableWidget):
     """
@@ -452,18 +454,21 @@ class MainWindow(QMainWindow):
         self.curves_tab = QWidget()
         self.pdf_to_image_tab = QWidget()
         self.split_tab = QWidget()
+        self.bookmark_tab = QWidget()
 
         self._setup_optimize_tab()
         self._setup_merge_tab()
         self._setup_curves_tab()
         self._setup_pdf_to_image_tab()
         self._setup_split_tab()
+        self._setup_bookmark_tab()
 
         self.tab_widget.addTab(self.optimize_tab, "PDF优化")
         self.tab_widget.addTab(self.merge_tab, "PDF合并")
         self.tab_widget.addTab(self.curves_tab, "PDF转曲")
         self.tab_widget.addTab(self.pdf_to_image_tab, "PDF转图片")
         self.tab_widget.addTab(self.split_tab, "PDF分割")
+        self.tab_widget.addTab(self.bookmark_tab, "PDF加书签")
 
         self._setup_tab_connections()
 
@@ -510,6 +515,8 @@ class MainWindow(QMainWindow):
                 self.add_files_to_pdf_to_image(files)
             elif current_tab == 4:
                 self.add_files_to_split(files)
+            elif current_tab == 5: # Bookmark tab
+                self.add_files_to_bookmark(files)
 
     def _reset_optimize_ui(self):
         self.progress_bar.setValue(0)
@@ -532,6 +539,12 @@ class MainWindow(QMainWindow):
         self.split_progress_bar.setValue(0)
         for row in range(self.split_table.rowCount()):
             self.split_table.setItem(row, 1, QTableWidgetItem("排队中..."))
+
+    def _reset_bookmark_ui(self):
+        self.bookmark_progress_bar.setValue(0)
+        for row in range(self.bookmark_file_table.rowCount()):
+            self.bookmark_file_table.setItem(row, 1, QTableWidgetItem("排队中..."))
+            self.bookmark_file_table.setItem(row, 2, QTableWidgetItem("操作"))
 
     def _update_controls_state(self, is_task_running=False):
         enable_when_not_running = not is_task_running
@@ -566,11 +579,23 @@ class MainWindow(QMainWindow):
         self.split_clear_button.setEnabled(enable_when_not_running and split_files_exist)
         self.split_stop_button.setEnabled(is_task_running)
 
+        bookmark_files_exist = self.bookmark_file_table.rowCount() > 0
+        self.bookmark_select_button.setEnabled(enable_when_not_running)
+        self.bookmark_clear_button.setEnabled(enable_when_not_running and bookmark_files_exist)
+        self.use_common_bookmarks_checkbox.setEnabled(enable_when_not_running)
+        self.add_new_bookmark_button.setEnabled(enable_when_not_running and bookmark_files_exist)
+        self.edit_common_bookmarks_button.setEnabled(enable_when_not_running and bookmark_files_exist)
+        self.import_bookmarks_button.setEnabled(enable_when_not_running)
+        self.export_bookmarks_button.setEnabled(enable_when_not_running and bookmark_files_exist)
+        self.bookmark_start_button.setEnabled(enable_when_not_running and bookmark_files_exist)
+        self.bookmark_stop_button.setEnabled(is_task_running)
+
         self.select_button.setEnabled(enable_when_not_running)
         self.merge_select_button.setEnabled(enable_when_not_running)
         self.curves_select_button.setEnabled(enable_when_not_running)
         self.pdf_to_image_select_button.setEnabled(enable_when_not_running)
         self.split_select_button.setEnabled(enable_when_not_running)
+        self.bookmark_select_button.setEnabled(enable_when_not_running)
 
     def start_optimization(self):
         if self.file_table.rowCount() == 0:
@@ -759,6 +784,10 @@ class MainWindow(QMainWindow):
             self.split_table.setRowCount(0)
             self.split_progress_bar.setValue(0)
             self.status_label.setText("请选择要分割的PDF文件...")
+        elif current_tab == 5: # Bookmark tab
+            self.bookmark_file_table.setRowCount(0)
+            self.bookmark_progress_bar.setValue(0)
+            self.status_label.setText("请选择要添加书签的PDF文件...")
         self._update_controls_state()
 
     def show_about_dialog(self):
@@ -822,6 +851,8 @@ class MainWindow(QMainWindow):
                 self.add_files_to_pdf_to_image(files)
             elif current_tab == 4:
                 self.add_files_to_split(files)
+            elif current_tab == 5: # Bookmark tab
+                self.add_files_to_bookmark(files)
 
     def add_files_to_optimize(self, files):
         current_row = self.file_table.rowCount()
@@ -897,6 +928,20 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"已添加 {len(files)} 个文件到分割列表。")
         self._update_controls_state()
 
+    def add_files_to_bookmark(self, files):
+        current_row = self.bookmark_file_table.rowCount()
+        self.bookmark_file_table.setRowCount(current_row + len(files))
+
+        for i, file_path in enumerate(files):
+            row = current_row + i
+            self.bookmark_file_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
+            self.bookmark_file_table.setItem(row, 1, QTableWidgetItem("排队中..."))
+            self.bookmark_file_table.setItem(row, 2, QTableWidgetItem("操作"))
+            self.bookmark_file_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, file_path)
+        
+        self.status_label.setText(f"已添加 {len(files)} 个文件到书签列表。")
+        self._update_controls_state()
+
     def closeEvent(self, event):
         if hasattr(self, 'optimize_worker') and self.optimize_worker.isRunning():
             self.optimize_worker.stop()
@@ -927,6 +972,9 @@ class MainWindow(QMainWindow):
         elif current_tab == 4 and hasattr(self, 'split_worker') and self.split_worker.isRunning():
             self.split_worker.stop()
             self.status_label.setText("分割任务已停止")
+        elif current_tab == 5 and hasattr(self, 'bookmark_worker') and self.bookmark_worker.isRunning(): # Bookmark tab
+            self.bookmark_worker.stop()
+            self.status_label.setText("添加书签任务已停止")
         self._update_controls_state(is_task_running=False)
 
     def start_merge_pdfs(self):
@@ -1208,6 +1256,275 @@ class MainWindow(QMainWindow):
         
         split_layout.addLayout(controls_layout)
 
+    def _setup_bookmark_tab(self):
+        layout = QVBoxLayout(self.bookmark_tab)
+
+        # 文件选择区
+        file_select_layout = QHBoxLayout()
+        self.bookmark_select_button = QPushButton("选择PDF文件")
+        self.bookmark_select_button.clicked.connect(self.select_files)
+        file_select_layout.addWidget(self.bookmark_select_button)
+        file_select_layout.addStretch()
+        layout.addLayout(file_select_layout)
+
+        # 文件列表表格
+        self.bookmark_file_table = SortableTableWidget()
+        self.bookmark_file_table.setColumnCount(3)
+        self.bookmark_file_table.setHorizontalHeaderLabels(["文件名", "书签数", "操作"])
+        self.bookmark_file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.bookmark_file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.bookmark_file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        layout.addWidget(self.bookmark_file_table)
+
+        # 共用书签模式切换
+        mode_layout = QHBoxLayout()
+        self.use_common_bookmarks_checkbox = QCheckBox("为所有文件添加同一组书签")
+        mode_layout.addWidget(self.use_common_bookmarks_checkbox)
+        mode_layout.addStretch()
+        layout.addLayout(mode_layout)
+
+        # 书签编辑/导入/导出区
+        bookmark_ctrl_layout = QHBoxLayout()
+        
+        self.add_new_bookmark_button = QPushButton("新增书签")
+        self.add_new_bookmark_button.clicked.connect(self.add_new_bookmark_clicked)
+        bookmark_ctrl_layout.addWidget(self.add_new_bookmark_button)
+        
+        self.edit_common_bookmarks_button = QPushButton("编辑书签")
+        self.edit_common_bookmarks_button.clicked.connect(self.edit_bookmarks_clicked)
+        bookmark_ctrl_layout.addWidget(self.edit_common_bookmarks_button)
+        
+        self.import_bookmarks_button = QPushButton("导入书签配置")
+        self.import_bookmarks_button.clicked.connect(self.import_bookmarks_clicked)
+        bookmark_ctrl_layout.addWidget(self.import_bookmarks_button)
+        
+        self.export_bookmarks_button = QPushButton("导出书签配置")
+        self.export_bookmarks_button.clicked.connect(self.export_bookmarks_clicked)
+        bookmark_ctrl_layout.addWidget(self.export_bookmarks_button)
+        
+        bookmark_ctrl_layout.addStretch()
+        layout.addLayout(bookmark_ctrl_layout)
+
+        # 进度条和开始按钮
+        progress_layout = QHBoxLayout()
+        self.bookmark_progress_bar = QProgressBar()
+        self.bookmark_progress_bar.setAlignment(Qt.AlignCenter)
+        progress_layout.addWidget(self.bookmark_progress_bar)
+        
+        self.bookmark_clear_button = QPushButton("清空列表")
+        self.bookmark_clear_button.clicked.connect(self.clear_current_list)
+        progress_layout.addWidget(self.bookmark_clear_button)
+        
+        self.bookmark_start_button = QPushButton("开始添加书签")
+        self.bookmark_start_button.clicked.connect(self.start_add_bookmarks)
+        progress_layout.addWidget(self.bookmark_start_button)
+        
+        self.bookmark_stop_button = QPushButton("停止")
+        self.bookmark_stop_button.clicked.connect(self.stop_current_task)
+        progress_layout.addWidget(self.bookmark_stop_button)
+        
+        layout.addLayout(progress_layout)
+
     def _setup_tab_connections(self):
         """设置标签页切换事件连接"""
         self.tab_widget.currentChanged.connect(lambda: self._update_controls_state())
+
+    def edit_bookmarks_clicked(self):
+        use_common = self.use_common_bookmarks_checkbox.isChecked()
+        if use_common:
+            # 编辑共用书签
+            if not hasattr(self, '_common_bookmarks'):
+                self._common_bookmarks = []
+            dlg = BookmarkEditDialog(self, bookmarks=self._common_bookmarks)
+            if dlg.exec() == QDialog.Accepted:
+                self._common_bookmarks = dlg.get_bookmarks()
+        else:
+            # 编辑选中文件的书签
+            selected = self.bookmark_file_table.selectedItems()
+            if not selected:
+                CustomMessageBox.warning(self, "提示", "请先选中要编辑书签的文件！")
+                return
+            row = selected[0].row()
+            file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            if not hasattr(self, '_file_bookmarks'):
+                self._file_bookmarks = {}
+            bookmarks = self._file_bookmarks.get(file_path, [])
+            dlg = BookmarkEditDialog(self, bookmarks=bookmarks)
+            if dlg.exec() == QDialog.Accepted:
+                self._file_bookmarks[file_path] = dlg.get_bookmarks()
+                self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._file_bookmarks[file_path]))))
+
+    def import_bookmarks_clicked(self):
+        path, _ = QFileDialog.getOpenFileName(self, "导入书签配置", "", "JSON Files (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if 'all' in data:
+                self._common_bookmarks = data['all']
+                self.use_common_bookmarks_checkbox.setChecked(True)
+            else:
+                self._file_bookmarks = data
+                self.use_common_bookmarks_checkbox.setChecked(False)
+            # 更新界面书签数
+            for row in range(self.bookmark_file_table.rowCount()):
+                file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                if hasattr(self, '_file_bookmarks') and file_path in self._file_bookmarks:
+                    self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._file_bookmarks[file_path]))))
+                elif hasattr(self, '_common_bookmarks'):
+                    self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._common_bookmarks))))
+        except Exception as e:
+            CustomMessageBox.warning(self, "导入失败", f"导入书签配置失败：{str(e)}")
+
+    def export_bookmarks_clicked(self):
+        path, _ = QFileDialog.getSaveFileName(self, "导出书签配置", "", "JSON Files (*.json)")
+        if not path:
+            return
+        try:
+            if self.use_common_bookmarks_checkbox.isChecked():
+                data = {'all': getattr(self, '_common_bookmarks', [])}
+            else:
+                data = getattr(self, '_file_bookmarks', {})
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            CustomMessageBox.information(self, "导出成功", "书签配置已成功导出！")
+        except Exception as e:
+            CustomMessageBox.warning(self, "导出失败", f"导出书签配置失败：{str(e)}")
+
+    def start_add_bookmarks(self):
+        """开始添加书签到PDF文件"""
+        if self.bookmark_file_table.rowCount() == 0:
+            CustomMessageBox.warning(self, "警告", "请先选择要添加书签的PDF文件。")
+            return
+
+        # 获取所有文件路径和它们的目录
+        file_paths = []
+        output_dir = None
+        for row in range(self.bookmark_file_table.rowCount()):
+            file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            file_paths.append(file_path)
+            if output_dir is None:
+                output_dir = os.path.dirname(file_path)
+            elif output_dir != os.path.dirname(file_path):
+                # 如果文件来自不同目录，则弹出选择框
+                output_dir = QFileDialog.getExistingDirectory(self, "选择添加书签后文件的保存文件夹")
+                if not output_dir:
+                    return
+                break
+
+        use_common = self.use_common_bookmarks_checkbox.isChecked()
+        # 构建 file_bookmarks
+        file_bookmarks = {}
+        for file_path in file_paths:
+            if use_common:
+                file_bookmarks[file_path] = getattr(self, '_common_bookmarks', [])
+            else:
+                file_bookmarks[file_path] = getattr(self, '_file_bookmarks', {}).get(file_path, [])
+
+        if use_common and not getattr(self, '_common_bookmarks', []):
+            CustomMessageBox.warning(self, "警告", "请先编辑共用书签！")
+            return
+        if not use_common and not any(file_bookmarks.values()):
+            CustomMessageBox.warning(self, "警告", "请为每个文件编辑书签！")
+            return
+
+        self._reset_bookmark_ui()
+        self._update_controls_state(is_task_running=True)
+        self.bookmark_worker = AddBookmarkWorker(file_bookmarks, output_dir, use_common, getattr(self, '_common_bookmarks', []))
+        self.bookmark_worker.progress.connect(self.bookmark_progress_bar.setValue)
+        self.bookmark_worker.file_finished.connect(self.on_bookmark_file_finished)
+        self.bookmark_worker.finished.connect(self.on_bookmark_all_finished)
+        self.bookmark_worker.start()
+        self.status_label.setText("正在批量添加书签...")
+
+    def on_bookmark_file_finished(self, row, result):
+        """处理单个文件的书签添加结果"""
+        if result.get("success"):
+            self.bookmark_file_table.setItem(row, 2, QTableWidgetItem("添加成功"))
+            # 显示输出文件路径
+            output_path = result.get("output", "")
+            if output_path:
+                self.bookmark_file_table.item(row, 2).setToolTip(f"已保存到：{output_path}")
+        else:
+            self.bookmark_file_table.setItem(row, 2, QTableWidgetItem("添加失败"))
+            error_message = result.get("message", "未知错误")
+            self.bookmark_file_table.item(row, 2).setToolTip(error_message)
+            CustomMessageBox.warning(
+                self, 
+                "添加失败", 
+                f"文件 {os.path.basename(result.get('file', ''))} 处理失败：\n{error_message}"
+            )
+
+    def on_bookmark_all_finished(self):
+        self.status_label.setText("书签批量添加完成！")
+        self.bookmark_progress_bar.setValue(100)
+        self._update_controls_state()
+
+    def add_new_bookmark_clicked(self):
+        """处理新增书签按钮点击事件"""
+        use_common = self.use_common_bookmarks_checkbox.isChecked()
+        if use_common:
+            # 编辑共用书签
+            if not hasattr(self, '_common_bookmarks'):
+                self._common_bookmarks = []
+            dlg = BookmarkEditDialog(self, bookmarks=self._common_bookmarks, is_new=True)
+            if dlg.exec() == QDialog.Accepted:
+                self._common_bookmarks = dlg.get_bookmarks()
+        else:
+            # 编辑选中文件的书签
+            selected = self.bookmark_file_table.selectedItems()
+            if not selected:
+                CustomMessageBox.warning(self, "提示", "请先选中要添加书签的文件！")
+                return
+            row = selected[0].row()
+            file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            if not hasattr(self, '_file_bookmarks'):
+                self._file_bookmarks = {}
+            bookmarks = self._file_bookmarks.get(file_path, [])
+            dlg = BookmarkEditDialog(self, bookmarks=bookmarks, is_new=True)
+            if dlg.exec() == QDialog.Accepted:
+                self._file_bookmarks[file_path] = dlg.get_bookmarks()
+                self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._file_bookmarks[file_path]))))
+
+# 1. 保留 AddBookmarkWorker 只包含线程相关方法
+class AddBookmarkWorker(QThread):
+    progress = Signal(int)
+    file_finished = Signal(int, dict)
+    finished = Signal()
+    def __init__(self, file_bookmarks, output_dir, use_common, common_bookmarks):
+        super().__init__()
+        self.file_bookmarks = file_bookmarks
+        self.output_dir = output_dir
+        self.use_common = use_common
+        self.common_bookmarks = common_bookmarks
+        self._is_running = True
+
+    def run(self):
+        files = list(self.file_bookmarks.keys())
+        total = len(files)
+        
+        # 确保输出目录存在
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+            
+        # 批量添加书签
+        results = batch_add_bookmarks_to_pdfs(
+            self.file_bookmarks,
+            self.output_dir,
+            use_common=self.use_common,
+            common_bookmarks=self.common_bookmarks
+        )
+        
+        # 处理每个文件的结果
+        for i, result in enumerate(results):
+            if not self._is_running:
+                break
+            self.file_finished.emit(i, result)
+            self.progress.emit(int((i + 1) / total * 100))
+            
+        self.finished.emit()
+
+    def stop(self):
+        self._is_running = False
+

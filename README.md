@@ -1,7 +1,7 @@
 
 # PDF Optimizer - A Powerful PDF Optimization Tool
 
-A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, and text-to-curves conversion.
+A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, and bookmark management.
 
 ## Key Features
 
@@ -26,6 +26,13 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
 - ✏️ **PDF Text to Curves**
   - Uses Ghostscript to convert text into curves
   - Ensures font display consistency
+
+- 📑 **PDF Bookmark Management**
+  - Add bookmarks to PDF files
+  - Support batch bookmark addition
+  - Support using the same bookmark configuration for multiple files
+  - Support importing and exporting bookmark configurations
+  - Support bookmark editing and preview
 
 - 🎨 **User-Friendly Interface**
   - Clean and intuitive user interface with tabbed navigation
