@@ -59,12 +59,18 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
 git clone https://github.com/yourusername/PDFOptimizer.git
 ```
 
-2. Install dependencies
+2. Install uv (Universal Virtualenv)
 ```bash
-pip install -r requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-3. Install Ghostscript (Optional)
+3. Create virtualenv and install dependencies
+```bash
+uv venv
+uv pip install -r requirements.txt
+```
+
+4. Install Ghostscript (Optional)
 - Download and install from the [Ghostscript official website](https://www.ghostscript.com/releases/gsdnld.html)
 - Make sure Ghostscript is added to the system's PATH environment variable
 
@@ -72,7 +78,7 @@ pip install -r requirements.txt
 
 1. Run the program
 ```bash
-python main.py
+uv run main.py
 ```
 
 2. PDF File Optimization

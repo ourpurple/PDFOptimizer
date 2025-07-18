@@ -56,12 +56,18 @@
 git clone https://github.com/yourusername/PDFOptimizer.git
 ```
 
-2. 安装依赖包
+2. 安装 uv (通用虚拟环境管理工具)
 ```bash
-pip install -r requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-3. 安装Ghostscript（可选）
+3. 创建虚拟环境并安装依赖
+```bash
+uv venv
+uv pip install -r requirements.txt
+```
+
+4. 安装Ghostscript（可选）
 - 从[Ghostscript官网](https://www.ghostscript.com/releases/gsdnld.html)下载并安装
 - 确保Ghostscript已添加到系统环境变量PATH中
 
@@ -69,7 +75,7 @@ pip install -r requirements.txt
 
 1. 运行程序
 ```bash
-python main.py
+uv run main.py
 ```
 
 2. PDF文件优化
