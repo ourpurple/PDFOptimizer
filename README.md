@@ -3,6 +3,8 @@
 
 A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, and bookmark management.
 
+[中文说明](https://github.com/ourpurple/PDFOptimizer/blob/main/readme_cn.md)
+
 ## Key Features
 
 - 📦 **PDF File Compression and Optimization**
