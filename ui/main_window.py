@@ -140,20 +140,68 @@ class SortableTableWidget(QTableWidget):
         menu = QMenu(self)
         open_folder_action = menu.addAction("打开所在文件夹")
         menu.addSeparator()
+        move_top_action = menu.addAction("移至顶部")
         move_up_action = menu.addAction("上移")
         move_down_action = menu.addAction("下移")
+        move_bottom_action = menu.addAction("移至底部")
+        menu.addSeparator()
         delete_action = menu.addAction("删除")
 
         action = menu.exec(self.mapToGlobal(event.pos()))
 
         if action == open_folder_action:
             self.open_selected_file_location()
+        elif action == move_top_action:
+            self.move_to_top()
         elif action == move_up_action:
             self.move_row_up()
         elif action == move_down_action:
             self.move_row_down()
+        elif action == move_bottom_action:
+            self.move_to_bottom()
         elif action == delete_action:
             self.delete_selected_rows()
+
+    def move_to_top(self):
+        """将选中的行移动到顶部"""
+        selected_rows = sorted(list(set(item.row() for item in self.selectedItems())))
+        if not selected_rows:
+            return
+
+        # 从上往下移动到顶部
+        target_row = 0
+        for row in selected_rows:
+            # 如果行已经在目标位置之后，需要考虑前面的行移动带来的影响
+            actual_row = row + len([r for r in selected_rows if r < row])
+            self.move_row(actual_row, target_row)
+            target_row += 1
+
+        # 重新选择移动后的行
+        self.clearSelection()
+        for i in range(len(selected_rows)):
+            self.selectRow(i)
+
+    def move_to_bottom(self):
+        """将选中的行移动到底部"""
+        selected_rows = sorted(list(set(item.row() for item in self.selectedItems())))
+        if not selected_rows:
+            return
+
+        # 计算目标位置（考虑到删除行后总行数的变化）
+        total_rows = self.rowCount()
+        target_start = total_rows - len(selected_rows)
+
+        # 从下往上移动到底部
+        for i, row in enumerate(reversed(selected_rows)):
+            target_row = total_rows - i - 1
+            # 如果行在目标位置之前，需要考虑前面的行移动带来的影响
+            actual_row = row - len([r for r in selected_rows if r > row])
+            self.move_row(actual_row, target_row)
+
+        # 重新选择移动后的行
+        self.clearSelection()
+        for i in range(len(selected_rows)):
+            self.selectRow(target_start + i)
 
     def move_row_up(self):
         """向上移动选定的行"""
