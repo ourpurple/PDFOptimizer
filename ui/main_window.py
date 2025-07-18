@@ -123,10 +123,11 @@ class SortableTableWidget(QTableWidget):
         if not selected_items:
             return
 
-        row = selected_items.row()
-        item = self.item(row, 0)
-        if item:
-            file_path = item.data(Qt.ItemDataRole.UserRole)
+        # 获取选中行的第一列（文件名列）
+        row = selected_items[0].row()
+        file_path_item = self.item(row, 0)
+        if file_path_item:
+            file_path = file_path_item.data(Qt.ItemDataRole.UserRole)
             if file_path and os.path.exists(os.path.dirname(file_path)):
                 folder = os.path.dirname(file_path)
                 QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
@@ -170,31 +171,45 @@ class SortableTableWidget(QTableWidget):
 
     def move_row_down(self):
         """向下移动选定的行"""
-        selected_rows = sorted(list(set(item.row() for item in self.selectedItems())), reverse=True)
-        if not selected_rows or selected_rows >= self.rowCount() - 1:
+        selected_rows = sorted(list(set(item.row() for item in self.selectedItems())))
+        if not selected_rows:
             return
-
-        for row in selected_rows:
+            
+        # 检查最后一个选中的行是否已经是最后一行
+        if max(selected_rows) >= self.rowCount() - 1:
+            return
+            
+        # 从下往上移动，避免行号变化影响
+        for row in reversed(selected_rows):
+            # 移动行
             self.move_row(row, row + 1)
 
+        # 重新选择移动后的行
         self.clearSelection()
-        new_selection = [row + 1 for row in selected_rows]
-        for row in new_selection:
-            self.selectRow(row)
-    
+        for row in selected_rows:
+            if row < self.rowCount() - 1:  # 确保不超出表格范围
+                self.selectRow(row + 1)
+
     def move_row(self, source_row, dest_row):
         """移动一行"""
         if source_row == dest_row or dest_row < 0 or dest_row >= self.rowCount():
             return
             
+        # 保存源行的所有列数据
         row_data = []
         for col in range(self.columnCount()):
             item = self.takeItem(source_row, col)
+            if item is None:
+                item = QTableWidgetItem("")
             row_data.append(item)
 
+        # 删除源行
         self.removeRow(source_row)
+        
+        # 在目标位置插入新行
         self.insertRow(dest_row)
-
+        
+        # 还原数据
         for col, item in enumerate(row_data):
             self.setItem(dest_row, col, item)
 
