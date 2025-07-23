@@ -1,7 +1,8 @@
 import os
 import subprocess
-from .utils import _get_gs_executable, get_subprocess_startup_info
+from .utils import _get_gs_executable, get_subprocess_startup_info, handle_exception, logger
 
+@handle_exception
 def convert_to_curves_with_ghostscript(input_path, output_path):
     """
     使用 Ghostscript 将 PDF 文件中的文本转换为曲线。
@@ -24,24 +25,20 @@ def convert_to_curves_with_ghostscript(input_path, output_path):
         input_path
     ]
 
-    try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
-        stdout, stderr = process.communicate()
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
+    stdout, stderr = process.communicate()
 
-        if process.returncode != 0:
-            return {"success": False, "message": f"Ghostscript 转曲失败: {stderr.strip()}"}
+    if process.returncode != 0:
+        error_message = f"Ghostscript 转曲失败，返回码：{process.returncode}，错误信息：{stderr.strip()}"
+        logger.error(error_message)
+        return {"success": False, "message": error_message}
 
-        original_size = os.path.getsize(input_path)
-        converted_size = os.path.getsize(output_path)
+    original_size = os.path.getsize(input_path)
+    converted_size = os.path.getsize(output_path)
 
-        return {
-            "success": True,
-            "original_size": original_size,
-            "optimized_size": converted_size,
-            "message": "转曲成功！"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"Ghostscript 转曲异常: {str(e)}"
-        }
+    return {
+        "success": True,
+        "original_size": original_size,
+        "optimized_size": converted_size,
+        "message": "转曲成功！"
+    }

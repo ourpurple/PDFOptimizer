@@ -1,8 +1,9 @@
 import os
 import pikepdf
 import subprocess
-from .utils import _get_gs_executable, get_subprocess_startup_info
+from .utils import _get_gs_executable, get_subprocess_startup_info, handle_exception, logger
 
+@handle_exception
 def optimize_pdf(input_path, output_path, quality_preset, progress_callback=None):
     """
     使用 pikepdf 进行 PDF 优化。
@@ -12,49 +13,44 @@ def optimize_pdf(input_path, output_path, quality_preset, progress_callback=None
     :param progress_callback: 进度回调函数，接收 0-100 整数
     :return: dict 优化结果
     """
-    try:
-        pdf = pikepdf.open(input_path)
-        # 根据质量预设设置压缩参数
-        if quality_preset == "低质量 (最大压缩)":
-            compress_streams = True
-            object_stream_mode = pikepdf.ObjectStreamMode.generate
-            linearize = False
-        elif quality_preset == "中等质量 (推荐)":
-            compress_streams = True
-            object_stream_mode = pikepdf.ObjectStreamMode.generate
-            linearize = True
-        else:  # 高质量 (轻度优化)
-            compress_streams = False
-            object_stream_mode = pikepdf.ObjectStreamMode.disable
-            linearize = True
+    pdf = pikepdf.open(input_path)
+    # 根据质量预设设置压缩参数
+    if quality_preset == "低质量 (最大压缩)":
+        compress_streams = True
+        object_stream_mode = pikepdf.ObjectStreamMode.generate
+        linearize = False
+    elif quality_preset == "中等质量 (推荐)":
+        compress_streams = True
+        object_stream_mode = pikepdf.ObjectStreamMode.generate
+        linearize = True
+    else:  # 高质量 (轻度优化)
+        compress_streams = False
+        object_stream_mode = pikepdf.ObjectStreamMode.disable
+        linearize = True
 
-        pdf.save(
-            output_path,
-            min_version=pdf.pdf_version,
-            object_stream_mode=object_stream_mode,
-            compress_streams=compress_streams,
-            linearize=linearize
-        )
-        pdf.close()
+    pdf.save(
+        output_path,
+        min_version=pdf.pdf_version,
+        object_stream_mode=object_stream_mode,
+        compress_streams=compress_streams,
+        linearize=linearize
+    )
+    pdf.close()
 
-        original_size = os.path.getsize(input_path)
-        optimized_size = os.path.getsize(output_path)
+    original_size = os.path.getsize(input_path)
+    optimized_size = os.path.getsize(output_path)
 
-        if progress_callback:
-            progress_callback(100)
+    if progress_callback:
+        progress_callback(100)
 
-        return {
-            "success": True,
-            "original_size": original_size,
-            "optimized_size": optimized_size,
-            "message": "优化成功！"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"优化失败: {str(e)}"
-        }
+    return {
+        "success": True,
+        "original_size": original_size,
+        "optimized_size": optimized_size,
+        "message": "优化成功！"
+    }
 
+@handle_exception
 def optimize_pdf_with_ghostscript(input_path, output_path, quality_preset):
     """
     使用 Ghostscript 命令行优化 PDF 文件。
@@ -86,14 +82,13 @@ def optimize_pdf_with_ghostscript(input_path, output_path, quality_preset):
         input_path
     ]
 
-    try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
-        stdout, stderr = process.communicate()
-    except Exception as e:
-        return {"success": False, "message": f"Ghostscript 优化异常: {str(e)}"}
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
+    stdout, stderr = process.communicate()
 
     if process.returncode != 0:
-        return {"success": False, "message": f"Ghostscript 优化失败: {stderr.strip()}"}
+        error_message = f"Ghostscript 优化失败，返回码：{process.returncode}，错误信息：{stderr.strip()}"
+        logger.error(error_message)
+        return {"success": False, "message": error_message}
 
     original_size = os.path.getsize(input_path)
     optimized_size = os.path.getsize(output_path)

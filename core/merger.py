@@ -1,38 +1,34 @@
 import pikepdf
 import subprocess
-from .utils import _get_gs_executable, get_subprocess_startup_info
+from .utils import _get_gs_executable, get_subprocess_startup_info, handle_exception, logger
 
+@handle_exception
 def merge_pdfs(input_paths: list, output_path: str, progress_callback=None):
     """
     Merges multiple PDF files into a single PDF file using pikepdf.
     """
-    try:
-        if not input_paths:
-            return {"success": False, "message": "没有选择任何PDF文件进行合并。"}
+    if not input_paths:
+        return {"success": False, "message": "没有选择任何PDF文件进行合并。"}
 
-        pdf = pikepdf.Pdf.new()
-        total_files = len(input_paths)
-        for i, file_path in enumerate(input_paths):
-            if progress_callback:
-                progress_callback(int((i / total_files) * 100))
-            with pikepdf.open(file_path) as src:
-                pdf.pages.extend(src.pages)
-        pdf.save(output_path)
-        pdf.close()
+    pdf = pikepdf.Pdf.new()
+    total_files = len(input_paths)
+    for i, file_path in enumerate(input_paths):
         if progress_callback:
-            progress_callback(100)
-        return {
-            "success": True,
-            "merged_files_count": total_files,
-            "output_path": output_path,
-            "message": "PDF 合并成功！"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"PDF 合并失败: {str(e)}"
-        }
+            progress_callback(int((i / total_files) * 100))
+        with pikepdf.open(file_path) as src:
+            pdf.pages.extend(src.pages)
+    pdf.save(output_path)
+    pdf.close()
+    if progress_callback:
+        progress_callback(100)
+    return {
+        "success": True,
+        "merged_files_count": total_files,
+        "output_path": output_path,
+        "message": "PDF 合并成功！"
+    }
 
+@handle_exception
 def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, progress_callback=None):
     """
     使用 Ghostscript 命令行合并多个 PDF 文件。
@@ -54,14 +50,13 @@ def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, progress_ca
         f"-sOutputFile={output_path}"
     ] + input_paths
 
-    try:
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
-        stdout, stderr = process.communicate()
-    except Exception as e:
-        return {"success": False, "message": f"Ghostscript 合并异常: {str(e)}"}
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
+    stdout, stderr = process.communicate()
 
     if process.returncode != 0:
-        return {"success": False, "message": f"Ghostscript 合并失败: {stderr.strip()}"}
+        error_message = f"Ghostscript 合并失败，返回码：{process.returncode}，错误信息：{stderr.strip()}"
+        logger.error(error_message)
+        return {"success": False, "message": error_message}
 
     if progress_callback:
         progress_callback(100)
