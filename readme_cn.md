@@ -67,7 +67,12 @@ uv venv
 uv pip install -r requirements.txt
 ```
 
-4. 安装Ghostscript（可选）
+4. （可选）安装开发依赖
+```bash
+uv pip install -r requirements-dev.txt
+```
+
+5. 安装Ghostscript（可选）
 - 从[Ghostscript官网](https://www.ghostscript.com/releases/gsdnld.html)下载并安装
 - 确保Ghostscript已添加到系统环境变量PATH中
 

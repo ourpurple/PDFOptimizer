@@ -70,6 +70,11 @@ uv venv
 uv pip install -r requirements.txt
 ```
 
+4. (Optional) Install development dependencies
+```bash
+uv pip install -r requirements-dev.txt
+```
+
 4. Install Ghostscript (Optional)
 - Download and install from the [Ghostscript official website](https://www.ghostscript.com/releases/gsdnld.html)
 - Make sure Ghostscript is added to the system's PATH environment variable

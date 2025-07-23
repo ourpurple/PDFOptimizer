@@ -1,9 +1,26 @@
 [project]
 name = "pdfoptimizer"
-version = "0.1.0"
-description = "Add your description here"
+version = "2.8.0"
+description = "A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, and bookmark management."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "pyinstaller>=6.14.2",
+    "PySide6>=6.0.0",
+    "pikepdf>=8.0.0",
+    "PyMuPDF>=1.23.0",
+    "pyinstaller>=6.14.2"
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+pdfoptimizer = "main:main"
