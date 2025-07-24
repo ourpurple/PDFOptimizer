@@ -1,4 +1,5 @@
 dist/
+build/
 PDFOptimizer.spec
 ui/__pycache__/main_window.cpython-313.pyc
 .vscode/settings.json
