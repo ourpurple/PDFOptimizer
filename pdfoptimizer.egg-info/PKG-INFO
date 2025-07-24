@@ -9,6 +9,8 @@ Requires-Dist: PySide6>=6.0.0
 Requires-Dist: pikepdf>=8.0.0
 Requires-Dist: PyMuPDF>=1.23.0
 Requires-Dist: pyinstaller>=6.14.2
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: python-dotenv>=1.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
 Requires-Dist: black>=22.0.0; extra == "dev"

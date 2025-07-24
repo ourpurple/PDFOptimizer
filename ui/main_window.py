@@ -3,11 +3,12 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget,
     QLabel, QFileDialog, QTableWidget, QProgressBar, QHBoxLayout,
     QComboBox, QHeaderView, QTableWidgetItem, QMessageBox, QAbstractItemView,
-    QTabWidget, QMenu, QCheckBox, QDialog
+    QTabWidget, QMenu, QCheckBox, QDialog, QLineEdit, QTextEdit, QFormLayout
 )
 from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl
 from PySide6.QtGui import QIcon, QDesktopServices
 import os
+import httpx
 from core import (
     optimize_pdf,
     convert_to_curves_with_ghostscript,
@@ -20,8 +21,10 @@ from core import (
     __version__,
     batch_add_bookmarks_to_pdfs
 )
+from core.ocr import process_images_with_model, encode_image_to_base64
 from .custom_dialog import CustomMessageBox, BookmarkEditDialog
 import json
+import dotenv
 
 class SortableTableWidget(QTableWidget):
     """
@@ -296,13 +299,11 @@ class OptimizeWorker(BaseWorker):
         self.files = files
         self.quality = quality
         self.engine = engine
-
     def run(self):
         total_files = len(self.files)
         for i, file_path in enumerate(self.files):
             if not self._is_running:
                 break
-
             try:
                 filename, ext = os.path.splitext(os.path.basename(file_path))
                 engine_name = self.engine.replace(" 引擎", "")
@@ -313,7 +314,6 @@ class OptimizeWorker(BaseWorker):
                     result = optimize_pdf_with_ghostscript(file_path, output_path, self.quality)
                 else:
                     result = optimize_pdf(file_path, output_path, self.quality)
-
                 if result.get("success"):
                     self.file_finished.emit(i, {
                         "success": True,
@@ -325,16 +325,13 @@ class OptimizeWorker(BaseWorker):
                         "success": False,
                         "message": result.get("message", "未知错误")
                     })
-
             except Exception as e:
                 self.file_finished.emit(i, {
                     "success": False,
                     "message": f"文件处理异常: {str(e)}"
                 })
-
             progress = int((i + 1) / total_files * 100)
             self.total_progress.emit(progress)
-
 class MergeWorker(BaseWorker):
     """PDF合并工作线程"""
     def __init__(self, files, output_path, engine):
@@ -342,14 +339,12 @@ class MergeWorker(BaseWorker):
         self.files = files
         self.output_path = output_path
         self.engine = engine
-
     def run(self):
         try:
             if "Ghostscript" in self.engine:
                 result = merge_pdfs_with_ghostscript(self.files, self.output_path)
             else:
                 result = merge_pdfs(self.files, self.output_path)
-
             if result.get("success"):
                 self.file_finished.emit(0, {
                     "success": True,
@@ -365,21 +360,17 @@ class MergeWorker(BaseWorker):
                 "success": False,
                 "message": str(e)
             })
-
         self.total_progress.emit(100)
-
 class CurvesWorker(BaseWorker):
     """PDF转曲工作线程"""
     def __init__(self, files):
         super().__init__()
         self.files = files
-
     def run(self):
         total_files = len(self.files)
         for i, file_path in enumerate(self.files):
             if not self._is_running:
                 break
-
             try:
                 filename, ext = os.path.splitext(os.path.basename(file_path))
                 new_filename = f"{filename}[Ghostscript][已转曲]{ext}"
@@ -401,28 +392,22 @@ class CurvesWorker(BaseWorker):
                     "success": False,
                     "message": str(e)
                 })
-
             progress = int((i + 1) / total_files * 100)
             self.total_progress.emit(progress)
-
-
 class PdfToImageWorker(BaseWorker):
     """PDF转图片工作线程"""
     progress_updated = Signal(int, int, int)  # file_index, current_page, total_pages
-
     def __init__(self, files, output_dir, image_format, dpi):
         super().__init__()
         self.files = files
         self.output_dir = output_dir
         self.image_format = image_format
         self.dpi = dpi
-
     def run(self):
         total_files = len(self.files)
         for i, file_path in enumerate(self.files):
             if not self._is_running:
                 break
-
             try:
                 result = convert_pdf_to_images(
                     file_path,
@@ -447,33 +432,26 @@ class PdfToImageWorker(BaseWorker):
                     "success": False,
                     "message": str(e)
                 })
-
             progress = int((i + 1) / total_files * 100)
             self.total_progress.emit(progress)
-
-
 class SplitWorker(BaseWorker):
     """PDF分割工作线程"""
     progress_updated = Signal(int, int, int)
-
     def __init__(self, files, output_dir):
         super().__init__()
         self.files = files
         self.output_dir = output_dir
-
     def run(self):
         total_files = len(self.files)
         for i, file_path in enumerate(self.files):
             if not self._is_running:
                 break
-
             try:
                 result = split_pdf(
                     file_path,
                     self.output_dir,
                     lambda current, total: self.progress_updated.emit(i, current, total)
                 )
-
                 if result.get("success"):
                     self.file_finished.emit(i, {
                         "success": True,
@@ -489,81 +467,219 @@ class SplitWorker(BaseWorker):
                     "success": False,
                     "message": str(e)
                 })
-
             progress = int((i + 1) / total_files * 100)
             self.total_progress.emit(progress)
-
-
+class OcrWorker(BaseWorker):
+    """PDF OCR 工作线程"""
+    ocr_progress = Signal(str)
+    ocr_page_finished = Signal(str)  # 新增信号，每识别一页后发出
+    ocr_finished = Signal(dict)
+    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir):
+        super().__init__()
+        self.file_path = file_path
+        self.api_key = api_key
+        self.model_name = model_name
+        self.api_base_url = api_base_url
+        self.prompt_text = prompt_text
+        self.temp_dir = temp_dir
+        self._is_running = True
+    def run(self):
+        if not self._is_running:
+            return
+        try:
+            # 1. 将PDF转换为图片
+            self.ocr_progress.emit("正在将PDF转换为图片...")
+            file_name_without_ext = os.path.splitext(os.path.basename(self.file_path))[0]
+            image_output_dir = os.path.join(self.temp_dir, file_name_without_ext)
+            
+            if os.path.exists(image_output_dir):
+                import shutil
+                shutil.rmtree(image_output_dir)
+            os.makedirs(image_output_dir)
+            convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=200)
+            if not convert_result["success"]:
+                raise Exception(f"PDF转图片失败: {convert_result['message']}")
+            image_paths = sorted(
+                [os.path.join(image_output_dir, f) for f in os.listdir(image_output_dir) if f.lower().endswith('.png')],
+                key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('页面')[-1].replace(']', '')) if '页面' in x else 0)
+            if not image_paths:
+                raise Exception("没有从PDF中生成任何图片。")
+            # 2. 调用OCR模型处理图片
+            def progress_callback(current, total, error=None):
+                if not self._is_running:
+                    raise InterruptedError("OCR task was stopped.")
+                if error:
+                    self.ocr_progress.emit(f"处理中: {current}/{total} (错误: {error})")
+                else:
+                    self.ocr_progress.emit(f"AI识别中: {current}/{total}页")
+                # 更新进度条
+                progress = int((current / total) * 100)
+                self.total_progress.emit(progress)
+            
+            self.ocr_progress.emit("正在调用AI模型进行识别...")
+            
+            # 逐页处理图片并实时更新结果
+            full_markdown_content = []
+            total_images = len(image_paths)
+            
+            for i, image_path in enumerate(image_paths):
+                if not self._is_running:
+                    raise InterruptedError("OCR task was stopped.")
+                    
+                # 更新进度条
+                progress = int((i / total_images) * 100)
+                self.total_progress.emit(progress)
+                    
+                base64_image = encode_image_to_base64(image_path)
+                if not base64_image:
+                    error_message = f"无法编码图片: {os.path.basename(image_path)}"
+                    page_content = f"\n\n--- 页面 {i+1} 处理失败: {error_message} ---\n\n"
+                    full_markdown_content.append(page_content)
+                    if progress_callback:
+                        progress_callback(i + 1, total_images, error_message)
+                    # 实时更新结果
+                    self.ocr_page_finished.emit("\n\n---\n\n".join(full_markdown_content))
+                    continue
+                    
+                payload = {
+                    "model": self.model_name,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": self.prompt_text},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{base64_image}"
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "max_tokens": 4096
+                }
+                
+                try:
+                    with httpx.Client(timeout=120) as client:
+                        response = client.post(
+                            f"{self.api_base_url}/chat/completions",
+                            headers={
+                                "Content-Type": "application/json",
+                                "Authorization": f"Bearer {self.api_key}"
+                            },
+                            json=payload
+                        )
+                        response.raise_for_status()  # 如果状态码是 4xx 或 5xx，则引发异常
+                    
+                    page_content = response.json()["choices"][0]["message"]["content"]
+                    full_markdown_content.append(page_content)
+                    
+                    if progress_callback:
+                        progress_callback(i + 1, total_images)
+                        
+                    # 实时更新结果
+                    self.ocr_page_finished.emit("\n\n---\n\n".join(full_markdown_content))
+                        
+                except httpx.HTTPStatusError as e:
+                    error_message = f"API返回错误 (页面 {i+1}): {e.response.status_code} - {e.response.text}"
+                    page_content = f"\n\n--- {error_message} ---\n\n"
+                    full_markdown_content.append(page_content)
+                    if progress_callback:
+                        progress_callback(i + 1, total_images, error_message)
+                    # 实时更新结果
+                    self.ocr_page_finished.emit("\n\n---\n\n".join(full_markdown_content))
+                except Exception as e:
+                    error_message = f"处理页面 {i+1} 时发生未知错误: {str(e)}"
+                    page_content = f"\n\n--- {error_message} ---\n\n"
+                    full_markdown_content.append(page_content)
+                    if progress_callback:
+                        progress_callback(i + 1, total_images, error_message)
+                    # 实时更新结果
+                    self.ocr_page_finished.emit("\n\n---\n\n".join(full_markdown_content))
+            
+            # 更新进度条到100%
+            self.total_progress.emit(100)
+            
+            final_markdown = "\n\n---\n\n".join(full_markdown_content)
+            ocr_result = {
+                "success": True,
+                "markdown_content": final_markdown,
+                "message": f"成功处理 {total_images} 张图片。"
+            }
+            
+            self.ocr_finished.emit(ocr_result)
+        except InterruptedError:
+             self.ocr_finished.emit({"success": False, "message": "任务已手动停止。"})
+        except Exception as e:
+            self.ocr_finished.emit({"success": False, "message": str(e)})
+        self.total_progress.emit(100)
+    
+    def stop(self):
+        self._is_running = False
+        super().stop()
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.app_version = f"v{__version__}"
         self.setWindowTitle(f"PDF Optimizer - {self.app_version}")
-        self.setGeometry(100, 100, 1080, 675)
-
+        self.setGeometry(100, 100, 1080, 720)
         icon_path = resource_path("ui/app.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-
         self.setAcceptDrops(True)
-
         main_layout = QVBoxLayout()
-
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
-
         self.optimize_tab = QWidget()
         self.merge_tab = QWidget()
         self.curves_tab = QWidget()
         self.pdf_to_image_tab = QWidget()
         self.split_tab = QWidget()
         self.bookmark_tab = QWidget()
-
+        self.ocr_tab = QWidget()
         self._setup_optimize_tab()
         self._setup_merge_tab()
         self._setup_curves_tab()
         self._setup_pdf_to_image_tab()
         self._setup_split_tab()
         self._setup_bookmark_tab()
-
+        self._setup_ocr_tab()
         self.tab_widget.addTab(self.optimize_tab, "PDF优化")
         self.tab_widget.addTab(self.merge_tab, "PDF合并")
         self.tab_widget.addTab(self.curves_tab, "PDF转曲")
         self.tab_widget.addTab(self.pdf_to_image_tab, "PDF转图片")
         self.tab_widget.addTab(self.split_tab, "PDF分割")
         self.tab_widget.addTab(self.bookmark_tab, "PDF加书签")
-
+        self.tab_widget.addTab(self.ocr_tab, "PDF OCR")
         self._setup_tab_connections()
-
         main_layout.addWidget(self.tab_widget)
-
         status_layout = QHBoxLayout()
         self.status_label = QLabel("请先选择文件...")
         status_layout.addWidget(self.status_label)
         status_layout.addStretch()
-
         self.gs_status_label = QLabel()
         status_layout.addWidget(self.gs_status_label)
         status_layout.addSpacing(20)
-
         self.about_button = QPushButton("关于")
         self.about_button.clicked.connect(self.show_about_dialog)
         status_layout.addWidget(self.about_button)
         main_layout.addLayout(status_layout)
-
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
-
         self.apply_stylesheet()
         self.check_ghostscript()
+        self._load_config()
         self._update_controls_state()
-
+        
+        self.temp_dir = os.path.join(os.path.expanduser("~"), ".pdfoptimizer", "temp")
+        if not os.path.exists(self.temp_dir):
+            os.makedirs(self.temp_dir)
         qr = self.frameGeometry()
         cp = self.screen().availableGeometry().center()
         qr.moveCenter(cp)
         self.move(qr.topLeft())
-
     def select_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "选择PDF文件", "", "PDF Files (*.pdf)")
         if files:
@@ -580,7 +696,8 @@ class MainWindow(QMainWindow):
                 self.add_files_to_split(files)
             elif current_tab == 5: # Bookmark tab
                 self.add_files_to_bookmark(files)
-
+            elif current_tab == 6:
+                self.add_files_to_ocr(files)
     def _reset_optimize_ui(self):
         self.progress_bar.setValue(0)
         for row in range(self.file_table.rowCount()):
@@ -592,23 +709,25 @@ class MainWindow(QMainWindow):
         self.curves_progress_bar.setValue(0)
         for row in range(self.curves_table.rowCount()):
             self.curves_table.setItem(row, 2, QTableWidgetItem("排队中..."))
-
     def _reset_pdf_to_image_ui(self):
         self.pdf_to_image_progress_bar.setValue(0)
         for row in range(self.pdf_to_image_table.rowCount()):
             self.pdf_to_image_table.setItem(row, 1, QTableWidgetItem("排队中..."))
-
     def _reset_split_ui(self):
         self.split_progress_bar.setValue(0)
         for row in range(self.split_table.rowCount()):
             self.split_table.setItem(row, 1, QTableWidgetItem("排队中..."))
-
     def _reset_bookmark_ui(self):
         self.bookmark_progress_bar.setValue(0)
         for row in range(self.bookmark_file_table.rowCount()):
             self.bookmark_file_table.setItem(row, 1, QTableWidgetItem("排队中..."))
             self.bookmark_file_table.setItem(row, 2, QTableWidgetItem("操作"))
-
+    def _reset_ocr_ui(self):
+        self.ocr_progress_bar.setValue(0)
+        self.ocr_result_text.clear()
+        if self.ocr_table.rowCount() > 0:
+            self.ocr_table.setItem(0, 1, QTableWidgetItem("排队中..."))
+ 
     def _update_controls_state(self, is_task_running=False):
         enable_when_not_running = not is_task_running
         
@@ -624,24 +743,20 @@ class MainWindow(QMainWindow):
         self.merge_clear_button.setEnabled(enable_when_not_running and merge_files_exist)
         self.merge_engine_combo.setEnabled(enable_when_not_running)
         self.merge_stop_button.setEnabled(is_task_running)
-
         curves_files_exist = self.curves_table.rowCount() > 0
         self.curves_button.setEnabled(enable_when_not_running and curves_files_exist and self.gs_installed)
         self.curves_clear_button.setEnabled(enable_when_not_running and curves_files_exist)
         self.curves_stop_button.setEnabled(is_task_running)
-
         pdf_to_image_files_exist = self.pdf_to_image_table.rowCount() > 0
         self.pdf_to_image_button.setEnabled(enable_when_not_running and pdf_to_image_files_exist)
         self.pdf_to_image_clear_button.setEnabled(enable_when_not_running and pdf_to_image_files_exist)
         self.pdf_to_image_stop_button.setEnabled(is_task_running)
         self.image_format_combo.setEnabled(enable_when_not_running)
         self.dpi_combo.setEnabled(enable_when_not_running)
-
         split_files_exist = self.split_table.rowCount() > 0
         self.split_button.setEnabled(enable_when_not_running and split_files_exist)
         self.split_clear_button.setEnabled(enable_when_not_running and split_files_exist)
         self.split_stop_button.setEnabled(is_task_running)
-
         bookmark_files_exist = self.bookmark_file_table.rowCount() > 0
         self.bookmark_select_button.setEnabled(enable_when_not_running)
         self.bookmark_clear_button.setEnabled(enable_when_not_running and bookmark_files_exist)
@@ -652,69 +767,58 @@ class MainWindow(QMainWindow):
         self.export_bookmarks_button.setEnabled(enable_when_not_running and bookmark_files_exist)
         self.bookmark_start_button.setEnabled(enable_when_not_running and bookmark_files_exist)
         self.bookmark_stop_button.setEnabled(is_task_running)
-
         self.select_button.setEnabled(enable_when_not_running)
         self.merge_select_button.setEnabled(enable_when_not_running)
         self.curves_select_button.setEnabled(enable_when_not_running)
         self.pdf_to_image_select_button.setEnabled(enable_when_not_running)
         self.split_select_button.setEnabled(enable_when_not_running)
         self.bookmark_select_button.setEnabled(enable_when_not_running)
-
+        ocr_files_exist = self.ocr_table.rowCount() > 0
+        self.ocr_select_button.setEnabled(enable_when_not_running)
+        self.ocr_start_button.setEnabled(enable_when_not_running and ocr_files_exist)
+        self.ocr_stop_button.setEnabled(is_task_running)
+        self.ocr_clear_button.setEnabled(enable_when_not_running and ocr_files_exist)
     def start_optimization(self):
         if self.file_table.rowCount() == 0:
             CustomMessageBox.warning(self, "警告", "请先选择要优化的PDF文件。")
             return
-
         self._reset_optimize_ui()
         self._update_controls_state(is_task_running=True)
-
         files = [self.file_table.item(i, 0).data(Qt.ItemDataRole.UserRole) 
                 for i in range(self.file_table.rowCount())]
-
         quality = self.quality_combo.currentText()
         engine = self.engine_combo.currentText()
-
         self.optimize_worker = OptimizeWorker(files, quality, engine)
         self.optimize_worker.total_progress.connect(self.progress_bar.setValue)
         self.optimize_worker.file_finished.connect(self.on_optimize_file_finished)
         self.optimize_worker.finished.connect(self.on_optimize_all_finished)
         self.optimize_worker.start()
-
         self.status_label.setText(f"正在使用 {engine} 进行优化...")
-
     def start_conversion_to_curves(self):
         if self.curves_table.rowCount() == 0:
             CustomMessageBox.warning(self, "警告", "请先选择要转曲的PDF文件。")
             return
-
         self._reset_curves_ui()
         self._update_controls_state(is_task_running=True)
-
         files = [self.curves_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.curves_table.rowCount())]
-
         self.curves_worker = CurvesWorker(files)
         self.curves_worker.total_progress.connect(self.curves_progress_bar.setValue)
         self.curves_worker.file_finished.connect(self.on_curves_file_finished)
         self.curves_worker.finished.connect(self.on_curves_all_finished)
         self.curves_worker.start()
         self.status_label.setText("正在转曲 (使用 Ghostscript)...")
-
     def start_pdf_to_image_conversion(self):
         if self.pdf_to_image_table.rowCount() == 0:
             CustomMessageBox.warning(self, "警告", "请先选择要转换的PDF文件。")
             return
-
         output_dir = QFileDialog.getExistingDirectory(self, "选择图片保存文件夹")
         if not output_dir:
             return
-
         self._reset_pdf_to_image_ui()
         self._update_controls_state(is_task_running=True)
-
         files = [self.pdf_to_image_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.pdf_to_image_table.rowCount())]
         image_format = self.image_format_combo.currentText().lower()
         dpi = int(self.dpi_combo.currentText())
-
         self.pdf_to_image_worker = PdfToImageWorker(files, output_dir, image_format, dpi)
         self.pdf_to_image_worker.total_progress.connect(self.pdf_to_image_progress_bar.setValue)
         self.pdf_to_image_worker.progress_updated.connect(self.on_pdf_to_image_progress)
@@ -722,21 +826,16 @@ class MainWindow(QMainWindow):
         self.pdf_to_image_worker.finished.connect(self.on_pdf_to_image_all_finished)
         self.pdf_to_image_worker.start()
         self.status_label.setText("正在将PDF转换为图片...")
-
     def start_split(self):
         if self.split_table.rowCount() == 0:
             CustomMessageBox.warning(self, "警告", "请先选择要分割的PDF文件。")
             return
-
         output_dir = QFileDialog.getExistingDirectory(self, "选择分割后文件的保存文件夹")
         if not output_dir:
             return
-
         self._reset_split_ui()
         self._update_controls_state(is_task_running=True)
-
         files = [self.split_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.split_table.rowCount())]
-
         self.split_worker = SplitWorker(files, output_dir)
         self.split_worker.total_progress.connect(self.split_progress_bar.setValue)
         self.split_worker.progress_updated.connect(self.on_split_progress)
@@ -744,13 +843,11 @@ class MainWindow(QMainWindow):
         self.split_worker.finished.connect(self.on_split_all_finished)
         self.split_worker.start()
         self.status_label.setText("正在分割PDF文件...")
-
     def on_optimize_file_finished(self, row, result):
         if result.get("success"):
             orig_size = result["original_size"] / (1024 * 1024)
             opt_size = result["optimized_size"] / (1024 * 1024)
             reduction = ((orig_size - opt_size) / orig_size) * 100 if orig_size > 0 else 0
-
             self.file_table.setItem(row, 1, QTableWidgetItem(f"{orig_size:.2f} MB"))
             self.file_table.setItem(row, 2, QTableWidgetItem(f"{opt_size:.2f} MB"))
             self.file_table.setItem(row, 3, QTableWidgetItem(f"{reduction:.1f}%"))
@@ -769,7 +866,6 @@ class MainWindow(QMainWindow):
             error_message = result.get("message", "未知错误")
             self.curves_table.item(row, 2).setToolTip(error_message)
             CustomMessageBox.warning(self, "转曲失败", f"文件处理失败：\n{error_message}")
-
     def on_pdf_to_image_file_finished(self, row, result):
         if result.get("success"):
             self.pdf_to_image_table.setItem(row, 1, QTableWidgetItem("转换成功"))
@@ -779,12 +875,10 @@ class MainWindow(QMainWindow):
             error_message = result.get("message", "未知错误")
             self.pdf_to_image_table.item(row, 1).setToolTip(error_message)
             CustomMessageBox.warning(self, "转换失败", f"文件处理失败：\n{error_message}")
-
     def on_pdf_to_image_progress(self, file_index, current_page, total_pages):
         if total_pages > 0:
             progress_percentage = int((current_page / total_pages) * 100)
             self.pdf_to_image_table.setItem(file_index, 1, QTableWidgetItem(f"转换中... {progress_percentage}%"))
-
     def on_split_file_finished(self, row, result):
         if result.get("success"):
             self.split_table.setItem(row, 1, QTableWidgetItem("分割成功"))
@@ -794,37 +888,30 @@ class MainWindow(QMainWindow):
             error_message = result.get("message", "未知错误")
             self.split_table.item(row, 1).setToolTip(error_message)
             CustomMessageBox.warning(self, "分割失败", f"文件处理失败：\n{error_message}")
-
     def on_split_progress(self, file_index, current_page, total_pages):
         if total_pages > 0:
             progress_percentage = int((current_page / total_pages) * 100)
             self.split_table.setItem(file_index, 1, QTableWidgetItem(f"分割中... {progress_percentage}%"))
-
     def on_optimize_all_finished(self):
         self.status_label.setText("PDF优化完成！")
         self.progress_bar.setValue(100)
         self._update_controls_state()
-
     def on_merge_all_finished(self):
         self.status_label.setText("PDF合并完成！")
         self.merge_progress_bar.setValue(100)
         self._update_controls_state()
-
     def on_curves_all_finished(self):
         self.status_label.setText("PDF转曲完成！")
         self.curves_progress_bar.setValue(100)
         self._update_controls_state()
-
     def on_pdf_to_image_all_finished(self):
         self.status_label.setText("PDF转图片完成！")
         self.pdf_to_image_progress_bar.setValue(100)
         self._update_controls_state()
-
     def on_split_all_finished(self):
         self.status_label.setText("PDF分割完成！")
         self.split_progress_bar.setValue(100)
         self._update_controls_state()
-
     def clear_current_list(self):
         current_tab = self.tab_widget.currentIndex()
         if current_tab == 0:
@@ -851,8 +938,12 @@ class MainWindow(QMainWindow):
             self.bookmark_file_table.setRowCount(0)
             self.bookmark_progress_bar.setValue(0)
             self.status_label.setText("请选择要添加书签的PDF文件...")
+        elif current_tab == 6: # OCR tab
+            self.ocr_table.setRowCount(0)
+            self.ocr_progress_bar.setValue(0)
+            self.ocr_result_text.clear()
+            self.status_label.setText("请选择要进行OCR识别的PDF文件...")
         self._update_controls_state()
-
     def show_about_dialog(self):
         about_text = f"""
 <div style='color:#333333;'>
@@ -868,13 +959,11 @@ class MainWindow(QMainWindow):
 </div>
 """
         CustomMessageBox.about(self, "关于 PDF Optimizer", about_text)
-
     def apply_stylesheet(self):
         style_path = resource_path("ui/style.qss")
         if os.path.exists(style_path):
             with open(style_path, "r", encoding="utf-8") as f:
                 self.setStyleSheet(f.read())
-
     def check_ghostscript(self):
         self.gs_installed = is_ghostscript_installed()
         if self.gs_installed:
@@ -894,14 +983,12 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
-
     def dropEvent(self, event):
         files = []
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             if file_path.lower().endswith('.pdf'):
                 files.append(file_path)
-
         if files:
             current_tab = self.tab_widget.currentIndex()
             if current_tab == 0:
@@ -916,11 +1003,11 @@ class MainWindow(QMainWindow):
                 self.add_files_to_split(files)
             elif current_tab == 5: # Bookmark tab
                 self.add_files_to_bookmark(files)
-
+            elif current_tab == 6:
+                self.add_files_to_ocr(files)
     def add_files_to_optimize(self, files):
         current_row = self.file_table.rowCount()
         self.file_table.setRowCount(current_row + len(files))
-
         for i, file_path in enumerate(files):
             row = current_row + i
             self.file_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
@@ -929,31 +1016,24 @@ class MainWindow(QMainWindow):
             self.file_table.setItem(row, 3, QTableWidgetItem("-"))
             self.file_table.setItem(row, 4, QTableWidgetItem("等待中..."))
             self.file_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, file_path)
-
         self.status_label.setText(f"已添加 {len(files)} 个文件到优化列表。")
         self._update_controls_state()
-
     def add_files_to_merge(self, files):
         current_row = self.merge_table.rowCount()
         self.merge_table.setRowCount(current_row + len(files))
-
         for i, file_path in enumerate(files):
             row = current_row + i
             self.merge_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
             self.merge_table.setItem(row, 1, QTableWidgetItem("等待中..."))
             self.merge_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, file_path)
-
         self.status_label.setText(f"已添加 {len(files)} 个文件到合并列表。")
         self._update_controls_state()
-
     def add_files_to_curves(self, files):
         if not self.gs_installed:
             CustomMessageBox.warning(self, "错误", "未检测到Ghostscript，无法使用转曲功能。")
             return
-
         current_row = self.curves_table.rowCount()
         self.curves_table.setRowCount(current_row + len(files))
-
         for i, file_path in enumerate(files):
             row = current_row + i
             size = os.path.getsize(file_path) / (1024 * 1024)
@@ -961,14 +1041,11 @@ class MainWindow(QMainWindow):
             self.curves_table.setItem(row, 1, QTableWidgetItem(f"{size:.2f} MB"))
             self.curves_table.setItem(row, 2, QTableWidgetItem("等待中..."))
             self.curves_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, file_path)
-
         self.status_label.setText(f"已添加 {len(files)} 个文件到转曲列表。")
         self._update_controls_state()
-
     def add_files_to_pdf_to_image(self, files):
         current_row = self.pdf_to_image_table.rowCount()
         self.pdf_to_image_table.setRowCount(current_row + len(files))
-
         for i, file_path in enumerate(files):
             row = current_row + i
             self.pdf_to_image_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
@@ -977,11 +1054,9 @@ class MainWindow(QMainWindow):
         
         self.status_label.setText(f"已添加 {len(files)} 个文件到转换列表。")
         self._update_controls_state()
-
     def add_files_to_split(self, files):
         current_row = self.split_table.rowCount()
         self.split_table.setRowCount(current_row + len(files))
-
         for i, file_path in enumerate(files):
             row = current_row + i
             self.split_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
@@ -990,11 +1065,9 @@ class MainWindow(QMainWindow):
         
         self.status_label.setText(f"已添加 {len(files)} 个文件到分割列表。")
         self._update_controls_state()
-
     def add_files_to_bookmark(self, files):
         current_row = self.bookmark_file_table.rowCount()
         self.bookmark_file_table.setRowCount(current_row + len(files))
-
         for i, file_path in enumerate(files):
             row = current_row + i
             self.bookmark_file_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
@@ -1004,7 +1077,6 @@ class MainWindow(QMainWindow):
         
         self.status_label.setText(f"已添加 {len(files)} 个文件到书签列表。")
         self._update_controls_state()
-
     def closeEvent(self, event):
         if hasattr(self, 'optimize_worker') and self.optimize_worker.isRunning():
             self.optimize_worker.stop()
@@ -1038,13 +1110,14 @@ class MainWindow(QMainWindow):
         elif current_tab == 5 and hasattr(self, 'bookmark_worker') and self.bookmark_worker.isRunning(): # Bookmark tab
             self.bookmark_worker.stop()
             self.status_label.setText("添加书签任务已停止")
+        elif current_tab == 6 and hasattr(self, 'ocr_worker') and self.ocr_worker.isRunning():
+            self.ocr_worker.stop()
+            self.status_label.setText("OCR 任务已停止")
         self._update_controls_state(is_task_running=False)
-
     def start_merge_pdfs(self):
         if self.merge_table.rowCount() < 2:
             CustomMessageBox.warning(self, "警告", "请至少选择两个PDF文件进行合并。")
             return
-
         first_file_item = self.merge_table.item(0, 0)
         suggested_path = ""
         if first_file_item:
@@ -1054,19 +1127,15 @@ class MainWindow(QMainWindow):
             suggested_filename = f"{first_file_name}[已合并{num_files}个PDF文件]{ext}"
             output_dir = os.path.dirname(first_file_path)
             suggested_path = os.path.join(output_dir, suggested_filename)
-
         output_path, _ = QFileDialog.getSaveFileName(
             self, "选择合并后文件的保存位置", suggested_path, "PDF Files (*.pdf)")
-
         if not output_path:
             return
         
         if not output_path.lower().endswith('.pdf'):
             output_path += '.pdf'
-
         self.merge_progress_bar.setValue(0)
         self._update_controls_state(is_task_running=True)
-
         files = [self.merge_table.item(i, 0).data(Qt.ItemDataRole.UserRole) 
                 for i in range(self.merge_table.rowCount())]
         
@@ -1088,17 +1157,14 @@ class MainWindow(QMainWindow):
                 self.merge_table.setItem(r, 1, QTableWidgetItem("合并失败"))
             error_message = result.get("message", "未知错误")
             CustomMessageBox.warning(self, "合并失败", f"合并失败：\n{error_message}")
-
     def _setup_optimize_tab(self):
         optimize_layout = QVBoxLayout(self.optimize_tab)
-
         file_select_layout = QHBoxLayout()
         self.select_button = QPushButton("选择PDF文件")
         self.select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.select_button)
         file_select_layout.addStretch()
         optimize_layout.addLayout(file_select_layout)
-
         self.file_table = SortableTableWidget()
         self.file_table.setColumnCount(5)
         self.file_table.setHorizontalHeaderLabels(["文件名", "原始大小", "优化后大小", "压缩率", "状态"])
@@ -1106,51 +1172,41 @@ class MainWindow(QMainWindow):
         self.file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         optimize_layout.addWidget(self.file_table)
-
         self.progress_bar = QProgressBar()
         self.progress_bar.setAlignment(Qt.AlignCenter)
         optimize_layout.addWidget(self.progress_bar)
-
         controls_layout = QHBoxLayout()
-
         quality_label = QLabel("质量:")
         controls_layout.addWidget(quality_label)
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["低质量 (最大压缩)", "中等质量 (推荐)", "高质量 (轻度优化)"])
         self.quality_combo.setCurrentText("高质量 (轻度优化)")
         controls_layout.addWidget(self.quality_combo)
-
         engine_label = QLabel("引擎:")
         controls_layout.addWidget(engine_label)
         self.engine_combo = QComboBox()
         self.engine_combo.addItem("Pikepdf 引擎")
         controls_layout.addWidget(self.engine_combo)
         controls_layout.addStretch()
-
         self.clear_button = QPushButton("清空列表")
         self.clear_button.clicked.connect(self.clear_current_list)
         controls_layout.addWidget(self.clear_button)
-
         self.optimize_button = QPushButton("开始优化")
         self.optimize_button.clicked.connect(self.start_optimization)
         controls_layout.addWidget(self.optimize_button)
-
         self.stop_button = QPushButton("停止")
         self.stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.stop_button)
         
         optimize_layout.addLayout(controls_layout)
-
     def _setup_merge_tab(self):
         merge_layout = QVBoxLayout(self.merge_tab)
-
         file_select_layout = QHBoxLayout()
         self.merge_select_button = QPushButton("选择PDF文件")
         self.merge_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.merge_select_button)
         file_select_layout.addStretch()
         merge_layout.addLayout(file_select_layout)
-
         self.merge_table = SortableTableWidget()
         self.merge_table.setColumnCount(2)
         self.merge_table.setHorizontalHeaderLabels(["文件名", "状态"])
@@ -1158,11 +1214,9 @@ class MainWindow(QMainWindow):
         self.merge_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.merge_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         merge_layout.addWidget(self.merge_table)
-
         self.merge_progress_bar = QProgressBar()
         self.merge_progress_bar.setAlignment(Qt.AlignCenter)
         merge_layout.addWidget(self.merge_progress_bar)
-
         controls_layout = QHBoxLayout()
         
         merge_engine_label = QLabel("引擎:")
@@ -1171,33 +1225,26 @@ class MainWindow(QMainWindow):
         self.merge_engine_combo.addItem("Pikepdf 引擎")
         self.merge_engine_combo.setCurrentText("Pikepdf 引擎")
         controls_layout.addWidget(self.merge_engine_combo)
-
         controls_layout.addStretch()
-
         self.merge_clear_button = QPushButton("清空列表")
         self.merge_clear_button.clicked.connect(self.clear_current_list)
         controls_layout.addWidget(self.merge_clear_button)
-
         self.merge_button = QPushButton("开始合并")
         self.merge_button.clicked.connect(self.start_merge_pdfs)
         controls_layout.addWidget(self.merge_button)
-
         self.merge_stop_button = QPushButton("停止")
         self.merge_stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.merge_stop_button)
         
         merge_layout.addLayout(controls_layout)
-
     def _setup_curves_tab(self):
         curves_layout = QVBoxLayout(self.curves_tab)
-
         file_select_layout = QHBoxLayout()
         self.curves_select_button = QPushButton("选择PDF文件")
         self.curves_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.curves_select_button)
         file_select_layout.addStretch()
         curves_layout.addLayout(file_select_layout)
-
         self.curves_table = SortableTableWidget()
         self.curves_table.setColumnCount(3)
         self.curves_table.setHorizontalHeaderLabels(["文件名", "原始大小", "状态"])
@@ -1205,38 +1252,30 @@ class MainWindow(QMainWindow):
         self.curves_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.curves_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         curves_layout.addWidget(self.curves_table)
-
         self.curves_progress_bar = QProgressBar()
         self.curves_progress_bar.setAlignment(Qt.AlignCenter)
         curves_layout.addWidget(self.curves_progress_bar)
-
         controls_layout = QHBoxLayout()
         controls_layout.addStretch()
-
         self.curves_clear_button = QPushButton("清空列表")
         self.curves_clear_button.clicked.connect(self.clear_current_list)
         controls_layout.addWidget(self.curves_clear_button)
-
         self.curves_button = QPushButton("开始转曲")
         self.curves_button.clicked.connect(self.start_conversion_to_curves)
         controls_layout.addWidget(self.curves_button)
-
         self.curves_stop_button = QPushButton("停止")
         self.curves_stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.curves_stop_button)
         
         curves_layout.addLayout(controls_layout)
-
     def _setup_pdf_to_image_tab(self):
         pdf_to_image_layout = QVBoxLayout(self.pdf_to_image_tab)
-
         file_select_layout = QHBoxLayout()
         self.pdf_to_image_select_button = QPushButton("选择PDF文件")
         self.pdf_to_image_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.pdf_to_image_select_button)
         file_select_layout.addStretch()
         pdf_to_image_layout.addLayout(file_select_layout)
-
         self.pdf_to_image_table = SortableTableWidget()
         self.pdf_to_image_table.setColumnCount(2)
         self.pdf_to_image_table.setHorizontalHeaderLabels(["文件名", "状态"])
@@ -1244,52 +1283,41 @@ class MainWindow(QMainWindow):
         self.pdf_to_image_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.pdf_to_image_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         pdf_to_image_layout.addWidget(self.pdf_to_image_table)
-
         self.pdf_to_image_progress_bar = QProgressBar()
         self.pdf_to_image_progress_bar.setAlignment(Qt.AlignCenter)
         pdf_to_image_layout.addWidget(self.pdf_to_image_progress_bar)
-
         controls_layout = QHBoxLayout()
-
         image_format_label = QLabel("图片格式:")
         controls_layout.addWidget(image_format_label)
         self.image_format_combo = QComboBox()
         self.image_format_combo.addItems(["JPG", "PNG"])
         controls_layout.addWidget(self.image_format_combo)
-
         dpi_label = QLabel("分辨率 (DPI):")
         controls_layout.addWidget(dpi_label)
         self.dpi_combo = QComboBox()
         self.dpi_combo.addItems(["72", "96", "150", "300", "600"])
         self.dpi_combo.setCurrentText("300")
         controls_layout.addWidget(self.dpi_combo)
-
         controls_layout.addStretch()
-
         self.pdf_to_image_clear_button = QPushButton("清空列表")
         self.pdf_to_image_clear_button.clicked.connect(self.clear_current_list)
         controls_layout.addWidget(self.pdf_to_image_clear_button)
-
         self.pdf_to_image_button = QPushButton("开始转换")
         self.pdf_to_image_button.clicked.connect(self.start_pdf_to_image_conversion)
         controls_layout.addWidget(self.pdf_to_image_button)
-
         self.pdf_to_image_stop_button = QPushButton("停止")
         self.pdf_to_image_stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.pdf_to_image_stop_button)
         
         pdf_to_image_layout.addLayout(controls_layout)
-
     def _setup_split_tab(self):
         split_layout = QVBoxLayout(self.split_tab)
-
         file_select_layout = QHBoxLayout()
         self.split_select_button = QPushButton("选择PDF文件")
         self.split_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.split_select_button)
         file_select_layout.addStretch()
         split_layout.addLayout(file_select_layout)
-
         self.split_table = SortableTableWidget()
         self.split_table.setColumnCount(2)
         self.split_table.setHorizontalHeaderLabels(["文件名", "状态"])
@@ -1297,31 +1325,24 @@ class MainWindow(QMainWindow):
         self.split_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.split_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         split_layout.addWidget(self.split_table)
-
         self.split_progress_bar = QProgressBar()
         self.split_progress_bar.setAlignment(Qt.AlignCenter)
         split_layout.addWidget(self.split_progress_bar)
-
         controls_layout = QHBoxLayout()
         controls_layout.addStretch()
-
         self.split_clear_button = QPushButton("清空列表")
         self.split_clear_button.clicked.connect(self.clear_current_list)
         controls_layout.addWidget(self.split_clear_button)
-
         self.split_button = QPushButton("开始分割")
         self.split_button.clicked.connect(self.start_split)
         controls_layout.addWidget(self.split_button)
-
         self.split_stop_button = QPushButton("停止")
         self.split_stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.split_stop_button)
         
         split_layout.addLayout(controls_layout)
-
     def _setup_bookmark_tab(self):
         layout = QVBoxLayout(self.bookmark_tab)
-
         # 文件选择区
         file_select_layout = QHBoxLayout()
         self.bookmark_select_button = QPushButton("选择PDF文件")
@@ -1329,7 +1350,6 @@ class MainWindow(QMainWindow):
         file_select_layout.addWidget(self.bookmark_select_button)
         file_select_layout.addStretch()
         layout.addLayout(file_select_layout)
-
         # 文件列表表格
         self.bookmark_file_table = SortableTableWidget()
         self.bookmark_file_table.setColumnCount(3)
@@ -1338,14 +1358,12 @@ class MainWindow(QMainWindow):
         self.bookmark_file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.bookmark_file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.bookmark_file_table)
-
         # 共用书签模式切换
         mode_layout = QHBoxLayout()
         self.use_common_bookmarks_checkbox = QCheckBox("为所有文件添加同一组书签")
         mode_layout.addWidget(self.use_common_bookmarks_checkbox)
         mode_layout.addStretch()
         layout.addLayout(mode_layout)
-
         # 书签编辑/导入/导出区
         bookmark_ctrl_layout = QHBoxLayout()
         
@@ -1367,7 +1385,6 @@ class MainWindow(QMainWindow):
         
         bookmark_ctrl_layout.addStretch()
         layout.addLayout(bookmark_ctrl_layout)
-
         # 进度条和开始按钮
         progress_layout = QHBoxLayout()
         self.bookmark_progress_bar = QProgressBar()
@@ -1387,11 +1404,9 @@ class MainWindow(QMainWindow):
         progress_layout.addWidget(self.bookmark_stop_button)
         
         layout.addLayout(progress_layout)
-
     def _setup_tab_connections(self):
         """设置标签页切换事件连接"""
         self.tab_widget.currentChanged.connect(lambda: self._update_controls_state())
-
     def edit_bookmarks_clicked(self):
         use_common = self.use_common_bookmarks_checkbox.isChecked()
         if use_common:
@@ -1416,7 +1431,6 @@ class MainWindow(QMainWindow):
             if dlg.exec() == QDialog.Accepted:
                 self._file_bookmarks[file_path] = dlg.get_bookmarks()
                 self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._file_bookmarks[file_path]))))
-
     def import_bookmarks_clicked(self):
         path, _ = QFileDialog.getOpenFileName(self, "导入书签配置", "", "JSON Files (*.json)")
         if not path:
@@ -1439,7 +1453,6 @@ class MainWindow(QMainWindow):
                     self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._common_bookmarks))))
         except Exception as e:
             CustomMessageBox.warning(self, "导入失败", f"导入书签配置失败：{str(e)}")
-
     def export_bookmarks_clicked(self):
         path, _ = QFileDialog.getSaveFileName(self, "导出书签配置", "", "JSON Files (*.json)")
         if not path:
@@ -1454,13 +1467,11 @@ class MainWindow(QMainWindow):
             CustomMessageBox.information(self, "导出成功", "书签配置已成功导出！")
         except Exception as e:
             CustomMessageBox.warning(self, "导出失败", f"导出书签配置失败：{str(e)}")
-
     def start_add_bookmarks(self):
         """开始添加书签到PDF文件"""
         if self.bookmark_file_table.rowCount() == 0:
             CustomMessageBox.warning(self, "警告", "请先选择要添加书签的PDF文件。")
             return
-
         # 获取所有文件路径和它们的目录
         file_paths = []
         output_dir = None
@@ -1475,7 +1486,6 @@ class MainWindow(QMainWindow):
                 if not output_dir:
                     return
                 break
-
         use_common = self.use_common_bookmarks_checkbox.isChecked()
         # 构建 file_bookmarks
         file_bookmarks = {}
@@ -1484,14 +1494,12 @@ class MainWindow(QMainWindow):
                 file_bookmarks[file_path] = getattr(self, '_common_bookmarks', [])
             else:
                 file_bookmarks[file_path] = getattr(self, '_file_bookmarks', {}).get(file_path, [])
-
         if use_common and not getattr(self, '_common_bookmarks', []):
             CustomMessageBox.warning(self, "警告", "请先编辑共用书签！")
             return
         if not use_common and not any(file_bookmarks.values()):
             CustomMessageBox.warning(self, "警告", "请为每个文件编辑书签！")
             return
-
         self._reset_bookmark_ui()
         self._update_controls_state(is_task_running=True)
         self.bookmark_worker = AddBookmarkWorker(file_bookmarks, output_dir, use_common, getattr(self, '_common_bookmarks', []))
@@ -1500,7 +1508,6 @@ class MainWindow(QMainWindow):
         self.bookmark_worker.finished.connect(self.on_bookmark_all_finished)
         self.bookmark_worker.start()
         self.status_label.setText("正在批量添加书签...")
-
     def on_bookmark_file_finished(self, row, result):
         """处理单个文件的书签添加结果"""
         if result.get("success"):
@@ -1518,12 +1525,10 @@ class MainWindow(QMainWindow):
                 "添加失败", 
                 f"文件 {os.path.basename(result.get('file', ''))} 处理失败：\n{error_message}"
             )
-
     def on_bookmark_all_finished(self):
         self.status_label.setText("书签批量添加完成！")
         self.bookmark_progress_bar.setValue(100)
         self._update_controls_state()
-
     def add_new_bookmark_clicked(self):
         """处理新增书签按钮点击事件"""
         use_common = self.use_common_bookmarks_checkbox.isChecked()
@@ -1549,7 +1554,177 @@ class MainWindow(QMainWindow):
             if dlg.exec() == QDialog.Accepted:
                 self._file_bookmarks[file_path] = dlg.get_bookmarks()
                 self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._file_bookmarks[file_path]))))
-
+    def add_files_to_ocr(self, files):
+        if not files:
+            return
+        if len(files) > 1:
+            CustomMessageBox.information(self, "提示", "OCR 功能每次仅能处理一个PDF文件，将只添加第一个文件。")
+        
+        file_path = files[0]
+        self.ocr_table.setRowCount(1)
+        self.ocr_table.setItem(0, 0, QTableWidgetItem(os.path.basename(file_path)))
+        self.ocr_table.setItem(0, 1, QTableWidgetItem("等待中..."))
+        self.ocr_table.item(0, 0).setData(Qt.ItemDataRole.UserRole, file_path)
+        
+        self.status_label.setText(f"已添加文件: {os.path.basename(file_path)}")
+        self._reset_ocr_ui()
+        self._update_controls_state()
+    def _setup_ocr_tab(self):
+        ocr_layout = QVBoxLayout(self.ocr_tab)
+        
+        # --- Top Controls ---
+        top_controls_layout = QHBoxLayout()
+        self.ocr_select_button = QPushButton("选择PDF文件 (仅限单个)")
+        self.ocr_select_button.clicked.connect(self.select_files)
+        top_controls_layout.addWidget(self.ocr_select_button)
+        
+        # 添加配置按钮
+        self.ocr_config_button = QPushButton("配置...")
+        self.ocr_config_button.clicked.connect(self._open_ocr_config_dialog)
+        top_controls_layout.addWidget(self.ocr_config_button)
+        
+        top_controls_layout.addStretch()
+        ocr_layout.addLayout(top_controls_layout)
+        
+        # --- File Table ---
+        self.ocr_table = SortableTableWidget()
+        self.ocr_table.setColumnCount(2)
+        self.ocr_table.setHorizontalHeaderLabels(["文件名", "状态"])
+        # 设置两列各占50%的宽度
+        self.ocr_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.ocr_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.ocr_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.ocr_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        ocr_layout.addWidget(self.ocr_table)
+        
+        # --- Result Display ---
+        self.ocr_result_text = QTextEdit()
+        self.ocr_result_text.setReadOnly(True)
+        self.ocr_result_text.setPlaceholderText("OCR识别结果将显示在这里...")
+        ocr_layout.addWidget(self.ocr_result_text)
+        
+        # --- Progress Bar and Bottom Controls ---
+        self.ocr_progress_bar = QProgressBar()
+        self.ocr_progress_bar.setAlignment(Qt.AlignCenter)
+        ocr_layout.addWidget(self.ocr_progress_bar)
+        
+        bottom_controls_layout = QHBoxLayout()
+        bottom_controls_layout.addStretch()
+        self.ocr_clear_button = QPushButton("清空列表")
+        self.ocr_clear_button.clicked.connect(self.clear_current_list)
+        self.ocr_start_button = QPushButton("开始识别")
+        self.ocr_start_button.clicked.connect(self.start_ocr_conversion)
+        self.ocr_stop_button = QPushButton("停止")
+        self.ocr_stop_button.clicked.connect(self.stop_current_task)
+        bottom_controls_layout.addWidget(self.ocr_clear_button)
+        bottom_controls_layout.addWidget(self.ocr_start_button)
+        bottom_controls_layout.addWidget(self.ocr_stop_button)
+        ocr_layout.addLayout(bottom_controls_layout)
+    def _load_config(self):
+        self.env_path = os.path.join(os.path.expanduser("~"), ".pdfoptimizer", ".env")
+        if os.path.exists(os.path.dirname(self.env_path)):
+            dotenv.load_dotenv(dotenv_path=self.env_path)
+    def _save_config(self):
+        # 配置现在由 OcrConfigDialog 管理，此处留空但保留方法以避免破坏其他代码
+        pass
+    def start_ocr_conversion(self):
+        if self.ocr_table.rowCount() == 0:
+            CustomMessageBox.warning(self, "警告", "请先选择一个PDF文件进行OCR识别。")
+            return
+            
+        # 从 .env 文件重新加载配置
+        if os.path.exists(os.path.dirname(self.env_path)):
+            dotenv.load_dotenv(dotenv_path=self.env_path)
+            
+        api_key = os.getenv("OCR_API_KEY", "")
+        if not api_key:
+            CustomMessageBox.warning(self, "警告", "请在配置对话框中设置API Key。")
+            return
+            
+        self._reset_ocr_ui()
+        self._update_controls_state(is_task_running=True)
+        file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        
+        # 确保 file_path 是字符串
+        if isinstance(file_path_data, tuple):
+            file_path = file_path_data[0] if file_path_data else ""
+        else:
+            file_path = file_path_data
+            
+        if not file_path:
+            CustomMessageBox.warning(self, "错误", "无法获取文件路径。")
+            self._update_controls_state(is_task_running=False)
+            return
+        
+        # 从环境变量获取配置
+        api_base_url = os.getenv("OCR_API_BASE_URL", "https://api.openai.com/v1")
+        model_name = os.getenv("OCR_MODEL_NAME", "gpt-4o")
+        prompt_text = os.getenv("OCR_PROMPT", "这是一个PDF页面。请准确识别所有内容，并将其转换为结构良好的Markdown格式。")
+        
+        self.ocr_worker = OcrWorker(
+            file_path=file_path,
+            api_key=api_key,
+            model_name=model_name,
+            api_base_url=api_base_url,
+            prompt_text=prompt_text,
+            temp_dir=self.temp_dir
+        )
+        self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
+        self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
+        self.ocr_worker.ocr_page_finished.connect(self.on_ocr_page_finished)  # 连接新信号
+        self.ocr_worker.ocr_finished.connect(self.on_ocr_finished)
+        self.ocr_worker.finished.connect(lambda: self._update_controls_state(is_task_running=False))
+        self.ocr_worker.start()
+        self.status_label.setText("正在进行OCR识别...")
+        
+    def on_ocr_progress(self, message):
+        self.ocr_table.setItem(0, 1, QTableWidgetItem(message))
+        
+    def on_ocr_page_finished(self, markdown_content):
+        """处理每页识别完成的信号"""
+        self.ocr_result_text.setMarkdown(markdown_content)
+        
+    def on_ocr_finished(self, result):
+        if result.get("success"):
+            markdown_content = result.get("markdown_content", "")
+            # 最后一次更新结果（确保完整内容）
+            self.ocr_result_text.setMarkdown(markdown_content)
+            self.ocr_table.setItem(0, 1, QTableWidgetItem("识别成功"))
+            self.status_label.setText("OCR识别完成！")
+            
+            # 自动保存为同名的MD文件
+            file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+            if file_path_data:
+                # 确保 file_path 是字符串
+                if isinstance(file_path_data, tuple):
+                    file_path = file_path_data[0] if file_path_data else ""
+                else:
+                    file_path = file_path_data
+                
+                if file_path:
+                    # 生成同名的MD文件路径
+                    md_file_path = os.path.splitext(file_path)[0] + ".md"
+                    try:
+                        with open(md_file_path, 'w', encoding='utf-8') as f:
+                            f.write(markdown_content)
+                        CustomMessageBox.information(self, "保存成功", f"OCR结果已自动保存到:\n{md_file_path}")
+                    except Exception as e:
+                        CustomMessageBox.warning(self, "保存失败", f"无法自动保存文件: {e}")
+        else:
+            error_message = result.get("message", "未知错误")
+            self.ocr_table.setItem(0, 1, QTableWidgetItem("识别失败"))
+            self.ocr_result_text.setText(f"发生错误:\n{error_message}")
+            CustomMessageBox.warning(self, "识别失败", f"OCR处理失败:\n{error_message}")
+            self.status_label.setText("OCR识别失败。")
+        self._update_controls_state()
+    def _open_ocr_config_dialog(self):
+        """打开OCR配置对话框"""
+        # 导入配置对话框类
+        from .ocr_config_dialog import OcrConfigDialog
+        
+        # 创建并显示对话框
+        dialog = OcrConfigDialog(self, self.env_path)
+        dialog.exec()  # 使用 exec() 以模态方式运行对话框
 # 1. 保留 AddBookmarkWorker 只包含线程相关方法
 class AddBookmarkWorker(QThread):
     progress = Signal(int)
@@ -1562,7 +1737,6 @@ class AddBookmarkWorker(QThread):
         self.use_common = use_common
         self.common_bookmarks = common_bookmarks
         self._is_running = True
-
     def run(self):
         files = list(self.file_bookmarks.keys())
         total = len(files)
@@ -1587,7 +1761,5 @@ class AddBookmarkWorker(QThread):
             self.progress.emit(int((i + 1) / total * 100))
             
         self.finished.emit()
-
     def stop(self):
         self._is_running = False
-

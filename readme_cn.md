@@ -33,6 +33,12 @@
   - 支持书签配置的导入导出
   - 支持书签的编辑和预览
 
+- 🧠 **PDF智能识别 (OCR)**
+ - 将PDF页面转换为图片，并调用兼容OpenAI格式的大语言模型（如GPT-4o）进行内容识别。
+ - 将识别结果转换为结构化的Markdown文本。
+ - 支持自定义API地址、模型名称和提示词 (Prompt)。
+ - 安全地保存API配置，无需重复输入。
+
 - 🎨 **友好的用户界面**
   - 简洁直观的标签式操作界面
   - 全功能支持文件拖拽
@@ -110,8 +116,16 @@ uv run main.py
       - 添加需要处理的PDF文件
       - 点击"开始转曲"
       - 等待处理完成
-   
-   ## 注意事项
+  
+  7. PDF智能识别 (OCR)
+     - 切换到"PDF OCR"标签页。
+     - 首次使用时，请填入您的API Base URL、API Key，然后点击"获取模型列表"按钮来获取可用的模型列表。选择合适的模型后，点击“保存配置”。此配置将安全地保存在本地，未来无需再次输入。
+     - 注意："获取模型列表"按钮只有在API Base URL和API Key都填写后才会变为可用状态。
+     - 点击“选择PDF文件”按钮，选择一个需要识别的PDF文档。
+     - 点击“开始识别”按钮，程序会将PDF逐页转换为图片并交由AI模型处理。
+     - 识别完成后，结果将以Markdown格式显示在文本框中，并自动保存为同名的.md文件。
+  
+  ## 注意事项
 
 - 建议在处理重要文件前先进行备份
 - 对于大文件处理可能需要较长时间，请耐心等待。
@@ -160,6 +174,20 @@ uv run main.py
   - 采用自定义 `SortableTableWidget`，重写拖拽事件 (`dragEnterEvent`, `dragMoveEvent`, `dropEvent`) 和右键菜单 (`contextMenuEvent`)，支持文件列表的拖拽排序、删除、上移/下移和打开文件所在位置。
   - 基于 `QThread`（封装为 `BaseWorker` 及其子类如 `OptimizeWorker`, `MergeWorker` 等）实现多线程处理，使用 `Signal` 实时更新进度条和表格状态，避免UI阻塞。
   - 资源路径通过 `resource_path` 处理，兼容开发环境与 PyInstaller 打包的 `_MEIPASS` 目录。
+
+- **PDF智能识别 (OCR)**
+ - **PDF转图片**: 复用 `core.pdf2img` 模块，将PDF页面转换为200 DPI的PNG图片，并保存到临时目录。
+ - **调用AI模型**: 新增 `core.ocr` 模块，包含 `process_images_with_model` 函数。该函数负责：
+   - 将每张图片进行Base64编码。
+   - 构建符合OpenAI Vision API格式的JSON payload，将图片和用户自定义的提示词（Prompt）发送到指定的API端点。
+   - 使用 `httpx` 库发送POST请求，并处理API返回的JSON数据。
+ - **配置管理**:
+   - 使用 `python-dotenv` 库管理API配置。
+   - 在用户主目录下的 `.pdfoptimizer/.env` 文件中安全地加载和保存`OCR_API_BASE_URL`, `OCR_API_KEY`等信息。
+ - **UI集成**:
+   - 在 `ui.main_window` 中新增一个 "PDF OCR" 标签页。
+   - 创建新的 `OcrWorker` 线程，在后台执行PDF转换和API调用，避免UI阻塞。
+   - 通过信号和槽机制 (`Signal`, `Slot`) 更新界面状态和进度。
 
 - **打包为可执行文件 (PyInstaller)**
   - 安装 PyInstaller：  

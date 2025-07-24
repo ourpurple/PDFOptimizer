@@ -6,6 +6,7 @@ core/add_bookmark.py
 core/converter.py
 core/division.py
 core/merger.py
+core/ocr.py
 core/optimizer.py
 core/pdf2img.py
 core/utils.py
