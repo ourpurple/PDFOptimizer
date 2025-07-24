@@ -24,3 +24,6 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 pdfoptimizer = "main:main"
+
+[tool.setuptools]
+packages = ["core", "ui"]
