@@ -48,6 +48,48 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
   - Real-time display of processing progress
   - Detailed feedback on processing results
   
+  ## Software Architecture
+
+```mermaid
+graph TD
+   subgraph User Interface (UI Layer - PySide6)
+       A[main_window.py] -- Manages UI and signals --> B{User Actions};
+       B -- Select Files, Click Buttons, etc. --> A;
+   end
+
+   subgraph Application Control (Control Layer)
+       C[main_window.py] -- Initiates workers --> D{Workers (QThread)};
+       A -- Signals to --> C;
+   end
+
+   subgraph Core Logic (Backend)
+       direction LR
+       D -- Calls backend functions --> E[core/optimizer.py];
+       D -- Calls backend functions --> F[core/merger.py];
+       D -- Calls backend functions --> G[core/division.py];
+       D -- Calls backend functions --> H[core/pdf2img.py];
+       D -- Calls backend functions --> I[core/add_bookmark.py];
+       D -- Calls backend functions --> J[core/ocr.py];
+       J -- Uses utility --> K[core/utils.py];
+       J -- Calls --> L[core/converter.py];
+       L -- Uses utility --> K;
+   end
+
+   subgraph External Dependencies (Tools & Services)
+       direction LR
+       E -- Uses library --> M[Pikepdf];
+       F -- Uses library --> M;
+       G -- Uses library --> N[PyMuPDF];
+       H -- Uses library --> N;
+       J -- Calls API --> O[LLM API (e.g., GPT-4o)];
+       L -- Calls executable --> P[Pandoc];
+       E -- Calls executable --> Q[Ghostscript];
+       F -- Calls executable --> Q;
+   end
+
+   C -- Updates UI based on results --> A;
+```
+
   ## Screenshot
   
   ![Screenshot](http://pic.mathe.cn/2025/07/17/79d439f3b098b.png)
