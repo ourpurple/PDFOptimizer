@@ -180,13 +180,35 @@ class OcrConfigDialog(QDialog):
             if not os.path.exists(env_dir):
                 os.makedirs(env_dir)
                 
+            # 保存配置项
             dotenv.set_key(self.env_path, "OCR_API_BASE_URL", self.api_url_input.text())
             dotenv.set_key(self.env_path, "OCR_API_KEY", self.api_key_input.text())
             dotenv.set_key(self.env_path, "OCR_MODEL_NAME", self.model_name_combo.currentText())
             dotenv.set_key(self.env_path, "OCR_PROMPT", self.prompt_input.toPlainText())
             
-            # QMessageBox.information(self, "成功", "OCR配置已成功保存。")
-            return True
+            # 验证配置是否已保存
+            if os.path.exists(self.env_path):
+                # 重新加载配置以验证
+                dotenv.load_dotenv(dotenv_path=self.env_path, override=True)
+                saved_api_url = os.getenv("OCR_API_BASE_URL", "")
+                saved_api_key = os.getenv("OCR_API_KEY", "")
+                saved_model_name = os.getenv("OCR_MODEL_NAME", "")
+                saved_prompt = os.getenv("OCR_PROMPT", "")
+                
+                # 检查是否所有配置都已正确保存
+                if (saved_api_url == self.api_url_input.text() and
+                    saved_api_key == self.api_key_input.text() and
+                    saved_model_name == self.model_name_combo.currentText() and
+                    saved_prompt == self.prompt_input.toPlainText()):
+                    QMessageBox.information(self, "成功", "OCR配置已成功保存。")
+                    return True
+                else:
+                    QMessageBox.warning(self, "保存失败", "配置未能正确保存到文件。")
+                    return False
+            else:
+                QMessageBox.warning(self, "保存失败", "配置文件未能创建。")
+                return False
+                
         except Exception as e:
             QMessageBox.warning(self, "保存失败", f"保存OCR配置失败: {e}")
             return False

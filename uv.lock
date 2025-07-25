@@ -307,7 +307,7 @@ wheels = [
 
 [[package]]
 name = "pdfoptimizer"
-version = "2.8.0"
+version = "3.10"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

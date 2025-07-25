@@ -1,5 +1,12 @@
 # 更新日志
 
+## [3.2.2] - 2025-07-25
+
+### 修复
+
+- **Pandoc转换失败**: 重构了 `convert_markdown_to_docx_with_pandoc` 函数，通过使用临时文件代替 `stdin` 管道，修复了在处理大型 Markdown 文件时因内存或缓冲区问题导致的 Pandoc 转换失败的错误。
+- **OCR内容截断**: 修复了 `preprocess_markdown_for_pandoc` 函数中因正则表达式贪婪匹配，错误地将 Markdown 分隔符 `---` 识别为 YAML 元数据块，从而导致 OCR 结果被意外截断的严重错误。
+
 ## [3.10] - 2025-07-25
 
 ### 修复
