@@ -11,6 +11,7 @@ Requires-Dist: PyMuPDF>=1.23.0
 Requires-Dist: pyinstaller>=6.14.2
 Requires-Dist: httpx>=0.27.0
 Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: python-docx>=0.8.11
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
 Requires-Dist: black>=22.0.0; extra == "dev"
@@ -54,6 +55,12 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
   - Support using the same bookmark configuration for multiple files
   - Support importing and exporting bookmark configurations
   - Support bookmark editing and preview
+
+- 🧠 **PDF Intelligent Recognition (OCR)**
+ - Convert PDF pages to images and call compatible OpenAI-format large language models (such as GPT-4o) for content recognition.
+ - Convert recognition results into structured Markdown text.
+ - Support custom API addresses, model names, and prompts.
+ - Securely save API configurations without repeated input.
 
 - 🎨 **User-Friendly Interface**
   - Clean and intuitive user interface with tabbed navigation
@@ -133,6 +140,14 @@ uv run main.py
    - Click "Start Conversion to Curves"
    - Wait for the process to complete
 
+7. PDF Intelligent Recognition (OCR)
+   - Switch to the "PDF OCR" tab.
+   - For first-time use, enter your API Base URL and API Key, then click the "Fetch Model List" button to get the available models. Select the appropriate model and click "Save Configuration". This configuration will be securely saved locally, so you won't need to enter it again in the future.
+   - Note: The "Fetch Model List" button will only become enabled after both the API Base URL and API Key are filled in.
+   - Click the "Select PDF File" button and choose a PDF document you want to recognize.
+   - Click the "Start Recognition" button. The program will convert the PDF pages to images and submit them to the AI model for processing.
+   - After recognition is complete, the results will be displayed in Markdown format in the text box and automatically saved as a .md file with the same name.
+
 ## Notes
 
 - It is recommended to back up important files before processing.
@@ -182,6 +197,20 @@ uv run main.py
   - Employs a custom `SortableTableWidget` that overrides drag-and-drop events (`dragEnterEvent`, `dragMoveEvent`, `dropEvent`) and the context menu (`contextMenuEvent`) to support drag-and-drop sorting, deletion, moving up/down, and opening the file location.
   - Implements multithreading with `QThread` (encapsulated in `BaseWorker` and its subclasses like `OptimizeWorker`, `MergeWorker`, etc.) and uses `Signal` to update the progress bar and table status in real-time without blocking the UI.
   - Resource paths are handled by `resource_path` to be compatible with both the development environment and the PyInstaller `_MEIPASS` directory.
+
+- **PDF Intelligent Recognition (OCR)**
+ - **PDF to Images**: Reuse the `core.pdf2img` module to convert PDF pages to 200 DPI PNG images and save them to a temporary directory.
+ - **Calling AI Models**: Add a new `core.ocr` module containing the `process_images_with_model` function. This function is responsible for:
+   - Encoding each image to Base64.
+   - Building a JSON payload in the OpenAI Vision API format, sending the image and user-defined prompts to the specified API endpoint.
+   - Using the `httpx` library to send POST requests and process the JSON data returned by the API.
+ - **Configuration Management**:
+   - Use the `python-dotenv` library to manage API configurations.
+   - Securely load and save `OCR_API_BASE_URL`, `OCR_API_KEY`, and other information in the `.pdfoptimizer/.env` file in the user's home directory.
+ - **UI Integration**:
+   - Add a new "PDF OCR" tab in `ui.main_window`.
+   - Create a new `OcrWorker` thread to execute PDF conversion and API calls in the background, preventing UI blocking.
+   - Update the interface status and progress through the signal and slot mechanism (`Signal`, `Slot`).
 
 - **Packaging as an Executable (PyInstaller)**
   - Install PyInstaller:

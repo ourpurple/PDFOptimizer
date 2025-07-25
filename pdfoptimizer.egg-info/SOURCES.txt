@@ -19,3 +19,4 @@ pdfoptimizer.egg-info/requires.txt
 pdfoptimizer.egg-info/top_level.txt
 ui/custom_dialog.py
 ui/main_window.py
+ui/ocr_config_dialog.py

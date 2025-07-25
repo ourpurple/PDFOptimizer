@@ -1,5 +1,7 @@
 # PDF Optimizer - PDF文件优化工具
 
+[![版本](https://img.shields.io/badge/version-3.10-blue.svg)](https://github.com/ourpurple/PDFOptimizer/releases)
+
 一个功能强大的PDF工具集，支持PDF压缩、合并、分割、图片转换、文本转曲和书签管理等功能。
 
 ## 主要功能
@@ -38,6 +40,7 @@
  - 将识别结果转换为结构化的Markdown文本。
  - 支持自定义API地址、模型名称和提示词 (Prompt)。
  - 安全地保存API配置，无需重复输入。
+ - **自动生成DOCX**：利用[Pandoc](https://pandoc.org/)，将识别出的Markdown内容（包含LaTeX公式）自动转换为高质量的`.docx`文件。
 
 - 🎨 **友好的用户界面**
   - 简洁直观的标签式操作界面
@@ -123,7 +126,7 @@ uv run main.py
      - 注意："获取模型列表"按钮只有在API Base URL和API Key都填写后才会变为可用状态。
      - 点击“选择PDF文件”按钮，选择一个需要识别的PDF文档。
      - 点击“开始识别”按钮，程序会将PDF逐页转换为图片并交由AI模型处理。
-     - 识别完成后，结果将以Markdown格式显示在文本框中，并自动保存为同名的.md文件。
+     - 识别完成后，结果将以Markdown格式显示在文本框中，并自动保存为同名的`.md`和`.docx`文件。
   
   ## 注意事项
 
@@ -189,6 +192,11 @@ uv run main.py
    - 创建新的 `OcrWorker` 线程，在后台执行PDF转换和API调用，避免UI阻塞。
    - 通过信号和槽机制 (`Signal`, `Slot`) 更新界面状态和进度。
 
+- **Markdown转DOCX (Pandoc)**
+  - 在OCR流程的最后，调用Pandoc命令行工具。
+  - 通过 `subprocess.Popen` 将预处理和修复后的Markdown内容作为标准输入传递给Pandoc。
+  - 明确启用 `+tex_math_dollars` 扩展，以确保行内和块级LaTeX公式都能被正确解析。
+  - 命令示例: `pandoc -f markdown+tex_math_dollars -t docx -o output.docx`
 - **打包为可执行文件 (PyInstaller)**
   - 安装 PyInstaller：  
     ```bash
@@ -207,6 +215,7 @@ uv run main.py
 - pikepdf
 - PyMuPDF
 - Ghostscript
+- Pandoc
 
 ## 反馈与建议
 

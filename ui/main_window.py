@@ -8,11 +8,15 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl
 from PySide6.QtGui import QIcon, QDesktopServices
 import os
+import re
 import httpx
 from core import (
     optimize_pdf,
     convert_to_curves_with_ghostscript,
     is_ghostscript_installed,
+    is_pandoc_installed,
+    convert_markdown_to_docx_with_pandoc,
+    preprocess_markdown_for_pandoc,
     optimize_pdf_with_ghostscript,
     merge_pdfs,
     merge_pdfs_with_ghostscript,
@@ -658,8 +662,13 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel("请先选择文件...")
         status_layout.addWidget(self.status_label)
         status_layout.addStretch()
+
         self.gs_status_label = QLabel()
         status_layout.addWidget(self.gs_status_label)
+        
+        self.pandoc_status_label = QLabel()
+        status_layout.addWidget(self.pandoc_status_label)
+
         status_layout.addSpacing(20)
         self.about_button = QPushButton("关于")
         self.about_button.clicked.connect(self.show_about_dialog)
@@ -670,6 +679,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         self.apply_stylesheet()
         self.check_ghostscript()
+        self.check_pandoc()
         self._load_config()
         self._update_controls_state()
         
@@ -977,6 +987,16 @@ class MainWindow(QMainWindow):
         else:
             self.gs_status_label.setText("❌ 未找到 Ghostscript (转曲和GS优化不可用)")
             self.gs_status_label.setStyleSheet("color: red;")
+
+    def check_pandoc(self):
+        """检查 pandoc 是否已安装，并更新状态标签。"""
+        self.pandoc_installed = is_pandoc_installed()
+        if self.pandoc_installed:
+            self.pandoc_status_label.setText("✅ Pandoc 已安装")
+            self.pandoc_status_label.setStyleSheet("color: green;")
+        else:
+            self.pandoc_status_label.setText("❌ 未找到 Pandoc (部分功能受限)")
+            self.pandoc_status_label.setStyleSheet("color: red;")
             
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -1631,6 +1651,20 @@ class MainWindow(QMainWindow):
         if self.ocr_table.rowCount() == 0:
             CustomMessageBox.warning(self, "警告", "请先选择一个PDF文件进行OCR识别。")
             return
+
+        # 检查 Pandoc 是否安装，并引导用户
+        if not self.pandoc_installed:
+            reply = CustomMessageBox.question(
+                self,
+                "依赖缺失",
+                "检测到 Pandoc 未安装，OCR结果将无法自动转换为.docx文件。\n\n"
+                "Pandoc 是一个强大的文档转换工具，建议从其官网 pandoc.org 下载并安装。\n\n"
+                "是否要继续（仅生成 .md 文件）？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return
             
         # 从 .env 文件重新加载配置
         if os.path.exists(os.path.dirname(self.env_path)):
@@ -1675,7 +1709,7 @@ class MainWindow(QMainWindow):
         self.ocr_worker.ocr_finished.connect(self.on_ocr_finished)
         self.ocr_worker.finished.connect(lambda: self._update_controls_state(is_task_running=False))
         self.ocr_worker.start()
-        self.status_label.setText("正在进行OCR识别...")
+        self.status_label.setText(f"正在使用 {model_name} 进行OCR识别...")
         
     def on_ocr_progress(self, message):
         self.ocr_table.setItem(0, 1, QTableWidgetItem(message))
@@ -1686,13 +1720,16 @@ class MainWindow(QMainWindow):
         
     def on_ocr_finished(self, result):
         if result.get("success"):
-            markdown_content = result.get("markdown_content", "")
+            raw_markdown_content = result.get("markdown_content", "")
+            
+            # 在转换前，先对Markdown内容进行预处理
+            markdown_content = preprocess_markdown_for_pandoc(raw_markdown_content)
             # 最后一次更新结果（确保完整内容）
             self.ocr_result_text.setMarkdown(markdown_content)
             self.ocr_table.setItem(0, 1, QTableWidgetItem("识别成功"))
             self.status_label.setText("OCR识别完成！")
             
-            # 自动保存为同名的MD文件
+            # 自动保存为同名的MD文件和DOCX文件
             file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
             if file_path_data:
                 # 确保 file_path 是字符串
@@ -1707,16 +1744,28 @@ class MainWindow(QMainWindow):
                     try:
                         with open(md_file_path, 'w', encoding='utf-8') as f:
                             f.write(markdown_content)
-                        CustomMessageBox.information(self, "保存成功", f"OCR结果已自动保存到:\n{md_file_path}")
+                        # CustomMessageBox.information(self, "保存成功", f"OCR结果已自动保存到:\n{md_file_path}")
                     except Exception as e:
-                        CustomMessageBox.warning(self, "保存失败", f"无法自动保存文件: {e}")
+                        CustomMessageBox.warning(self, "保存失败", f"无法自动保存MD文件: {e}")
+                    
+                    # 生成同名的DOCX文件路径
+                    docx_file_path = os.path.splitext(file_path)[0] + ".docx"
+                    # 使用 Pandoc 进行转换
+                    docx_result = convert_markdown_to_docx_with_pandoc(markdown_content, docx_file_path)
+
+                    if docx_result.get("success"):
+                        CustomMessageBox.information(self, "保存成功", f"OCR结果已自动保存到:\n{md_file_path}\n{docx_file_path}")
+                    else:
+                        # 如果 Pandoc 转换失败，显示详细错误信息
+                        error_message = docx_result.get("message", "未知错误")
+                        CustomMessageBox.warning(self, "DOCX 保存失败", f"无法将Markdown转换为DOCX: {error_message}")
         else:
             error_message = result.get("message", "未知错误")
             self.ocr_table.setItem(0, 1, QTableWidgetItem("识别失败"))
             self.ocr_result_text.setText(f"发生错误:\n{error_message}")
             CustomMessageBox.warning(self, "识别失败", f"OCR处理失败:\n{error_message}")
             self.status_label.setText("OCR识别失败。")
-        self._update_controls_state()
+    
     def _open_ocr_config_dialog(self):
         """打开OCR配置对话框"""
         # 导入配置对话框类
@@ -1725,6 +1774,7 @@ class MainWindow(QMainWindow):
         # 创建并显示对话框
         dialog = OcrConfigDialog(self, self.env_path)
         dialog.exec()  # 使用 exec() 以模态方式运行对话框
+
 # 1. 保留 AddBookmarkWorker 只包含线程相关方法
 class AddBookmarkWorker(QThread):
     progress = Signal(int)
