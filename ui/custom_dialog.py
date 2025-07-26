@@ -4,14 +4,16 @@ from PySide6.QtCore import Qt
 import os
 import sys
 
+
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
 
 class CustomMessageBox(QMessageBox):
     def __init__(self, parent=None):
@@ -21,7 +23,8 @@ class CustomMessageBox(QMessageBox):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        self.setStyleSheet("""
+        self.setStyleSheet(
+            """
             QMessageBox {
                 background-color: #FFFAF0; /* FloralWhite */
             }
@@ -43,7 +46,8 @@ class CustomMessageBox(QMessageBox):
             QPushButton:pressed {
                 background-color: #A0522D; /* Sienna */
             }
-        """)
+        """
+        )
 
     @staticmethod
     def information(parent, title, text):
@@ -78,8 +82,20 @@ class CustomMessageBox(QMessageBox):
         msg_box.setIcon(QMessageBox.Icon.NoIcon)
         msg_box.exec()
 
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QLabel, QLineEdit, QMessageBox
+
+from PySide6.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+)
 from PySide6.QtCore import Qt
+
 
 class BookmarkEditDialog(QDialog):
     def __init__(self, parent=None, bookmarks=None, is_new=False):
@@ -94,12 +110,12 @@ class BookmarkEditDialog(QDialog):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        
+
         # 添加提示标签
         tip_label = QLabel("提示：页码必须为数字，书签内容不能为空")
         tip_label.setStyleSheet("color: #666666; font-size: 10pt;")
         layout.addWidget(tip_label)
-        
+
         self.table = QTableWidget()
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["页码", "书签内容"])
@@ -132,7 +148,7 @@ class BookmarkEditDialog(QDialog):
             content_item = QTableWidgetItem(bm.get("title", ""))
             self.table.setItem(i, 0, page_item)
             self.table.setItem(i, 1, content_item)
-        
+
         # 如果是新增书签模式且没有书签，自动添加一个空行
         if self.is_new and self.table.rowCount() == 0:
             self.add_row()
@@ -160,36 +176,37 @@ class BookmarkEditDialog(QDialog):
         for row in range(self.table.rowCount()):
             page_item = self.table.item(row, 0)
             title_item = self.table.item(row, 1)
-            
+
             # 跳过完全空白的行
-            if (not page_item or not page_item.text().strip()) and \
-               (not title_item or not title_item.text().strip()):
+            if (not page_item or not page_item.text().strip()) and (
+                not title_item or not title_item.text().strip()
+            ):
                 continue
-                
+
             # 验证数据
             try:
                 page = int(page_item.text() if page_item else "")
                 title = title_item.text().strip() if title_item else ""
-                
+
                 if page <= 0:
                     error_rows.append(row + 1)
                     continue
-                    
+
                 if not title:
                     error_rows.append(row + 1)
                     continue
-                    
+
                 bookmarks.append({"page": page, "title": title})
-                
+
             except ValueError:
                 error_rows.append(row + 1)
-        
+
         return bookmarks, error_rows
 
     def accept(self):
         """验证并保存书签数据"""
         bookmarks, error_rows = self._validate_and_collect_bookmarks()
-        
+
         if error_rows:
             QMessageBox.warning(
                 self,
@@ -197,19 +214,22 @@ class BookmarkEditDialog(QDialog):
                 f"第 {', '.join(map(str, error_rows))} 行的数据无效。\n"
                 "请确保：\n"
                 "1. 页码为大于0的数字\n"
-                "2. 书签内容不能为空"
+                "2. 书签内容不能为空",
             )
             return
-            
+
         if not bookmarks and not self.is_new:
-            if QMessageBox.question(
-                self,
-                "确认",
-                "当前没有有效的书签数据，是否继续？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            ) != QMessageBox.StandardButton.Yes:
+            if (
+                QMessageBox.question(
+                    self,
+                    "确认",
+                    "当前没有有效的书签数据，是否继续？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                != QMessageBox.StandardButton.Yes
+            ):
                 return
-        
+
         # 保存验证通过的书签数据
         self.result_bookmarks = bookmarks
         super().accept()

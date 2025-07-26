@@ -2,8 +2,9 @@ import pikepdf
 import subprocess
 from .utils import _get_gs_executable, get_subprocess_startup_info, handle_exception, logger
 
+
 @handle_exception
-def merge_pdfs(input_paths: list, output_path: str, progress_callback=None):
+def merge_pdfs(input_paths: list, output_path: str, worker_signals=None):
     """
     Merges multiple PDF files into a single PDF file using pikepdf.
     """
@@ -12,24 +13,34 @@ def merge_pdfs(input_paths: list, output_path: str, progress_callback=None):
 
     pdf = pikepdf.Pdf.new()
     total_files = len(input_paths)
-    for i, file_path in enumerate(input_paths):
-        if progress_callback:
-            progress_callback(int((i / total_files) * 100))
-        with pikepdf.open(file_path) as src:
-            pdf.pages.extend(src.pages)
-    pdf.save(output_path)
-    pdf.close()
-    if progress_callback:
-        progress_callback(100)
+    try:
+        for i, file_path in enumerate(input_paths):
+            if worker_signals and not worker_signals["is_running"]():
+                return  # Exit early if task is stopped
+            if worker_signals:
+                worker_signals["progress"].emit(int((i / total_files) * 100))
+            with pikepdf.open(file_path) as src:
+                pdf.pages.extend(src.pages)
+        pdf.save(output_path)
+    finally:
+        pdf.close()
+
+    if worker_signals:
+        worker_signals["file_finished"].emit(
+            0, {"success": True, "output_path": output_path}
+        )
+        worker_signals["progress"].emit(100)
+
     return {
         "success": True,
         "merged_files_count": total_files,
         "output_path": output_path,
-        "message": "PDF 合并成功！"
+        "message": "PDF 合并成功！",
     }
 
+
 @handle_exception
-def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, progress_callback=None):
+def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, worker_signals=None):
     """
     使用 Ghostscript 命令行合并多个 PDF 文件。
     :param input_paths: PDF 文件路径列表
@@ -39,7 +50,10 @@ def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, progress_ca
     """
     gs_executable = _get_gs_executable()
     if not gs_executable:
-        return {"success": False, "message": "未找到 Ghostscript 可执行文件，请安装 Ghostscript 并确保其在系统 PATH 中。"}
+        return {
+            "success": False,
+            "message": "未找到 Ghostscript 可执行文件，请安装 Ghostscript 并确保其在系统 PATH 中。",
+        }
 
     cmd = [
         gs_executable,
@@ -47,18 +61,42 @@ def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, progress_ca
         "-dNOPAUSE",
         "-q",
         "-sDEVICE=pdfwrite",
-        f"-sOutputFile={output_path}"
+        f"-sOutputFile={output_path}",
     ] + input_paths
 
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
+    if worker_signals:
+        worker_signals["progress"].emit(50)
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        startupinfo=get_subprocess_startup_info(),
+    )
     stdout, stderr = process.communicate()
+    
+    if worker_signals and not worker_signals["is_running"]():
+        return
 
     if process.returncode != 0:
-        error_message = f"Ghostscript 合并失败，返回码：{process.returncode}，错误信息：{stderr.strip()}"
+        error_message = (
+            f"Ghostscript 合并失败，返回码：{process.returncode}，错误信息：{stderr.strip()}"
+        )
         logger.error(error_message)
+        if worker_signals:
+            worker_signals["file_finished"].emit(0, {"success": False, "message": error_message})
         return {"success": False, "message": error_message}
+    
+    if worker_signals:
+        worker_signals["file_finished"].emit(
+            0, {"success": True, "output_path": output_path}
+        )
+        worker_signals["progress"].emit(100)
 
-    if progress_callback:
-        progress_callback(100)
-
-    return {"success": True, "merged_files_count": len(input_paths), "output_path": output_path, "message": "PDF 合并成功！"}
+    return {
+        "success": True,
+        "merged_files_count": len(input_paths),
+        "output_path": output_path,
+        "message": "PDF 合并成功！",
+    }

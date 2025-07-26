@@ -1,8 +1,11 @@
 dist/
 build/
-PDFOptimizer.spec
+pdfoptimizer.egg-info/
+PDFOptimizer.spec/
+main.build/
 ui/__pycache__/main_window.cpython-313.pyc
 .vscode/settings.json
 *.pyc
 *.spec
 *.pyc
+app_log.log

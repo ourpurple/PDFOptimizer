@@ -1,6 +1,6 @@
 # PDF Optimizer - PDF文件优化工具
 
-[![版本](https://img.shields.io/badge/version-3.10-blue.svg)](https://github.com/ourpurple/PDFOptimizer/releases)
+[![版本](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/ourpurple/PDFOptimizer/releases)
 
 一个功能强大的PDF工具集，支持PDF压缩、合并、分割、图片转换、文本转曲和书签管理等功能。
 
@@ -173,10 +173,11 @@ uv run main.py
   - 将位图保存为指定的图片格式 (PNG/JPG)。
 
 - **图形界面 (PySide6)**
-  - 使用 `QMainWindow` 和 `QTabWidget` 构建主窗口及五个功能页（优化、合并、分割、转图片、转曲）。
-  - 采用自定义 `SortableTableWidget`，重写拖拽事件 (`dragEnterEvent`, `dragMoveEvent`, `dropEvent`) 和右键菜单 (`contextMenuEvent`)，支持文件列表的拖拽排序、删除、上移/下移和打开文件所在位置。
-  - 基于 `QThread`（封装为 `BaseWorker` 及其子类如 `OptimizeWorker`, `MergeWorker` 等）实现多线程处理，使用 `Signal` 实时更新进度条和表格状态，避免UI阻塞。
-  - 资源路径通过 `resource_path` 处理，兼容开发环境与 PyInstaller 打包的 `_MEIPASS` 目录。
+  - **模块化UI与选项卡控件**: UI围绕一个`QMainWindow`构建，该`QMainWindow`承载一个`QTabWidget`。每个主要功能（优化、合并、OCR等）都封装在自己的专用`QWidget`类中（例如`OptimizeTab`、`MergeTab`），然后作为选项卡加载。这将每个功能的UI逻辑与主窗口解耦。
+  - **使用`BaseTabWidget`共享UI逻辑**: `BaseTabWidget`类被用作大多数选项卡的父类。它抽象了通用的UI元素和逻辑，例如文件列表（`SortableTableWidget`）、进度条、控制按钮和状态标签，从而显著减少了代码重复。
+  - **通用异步工作线程**: 所有耗时的后端操作都在一个单独的线程中执行，以防止UI冻结。一个单一的、通用的`ProcessingWorker`类（继承自`QThread`）用于所有任务。该工作线程使用目标函数（例如`core.optimizer.run_optimization`）及其参数进行实例化，从而无需众多特定的工作线程类。
+  - **基于信号的UI更新**: `ProcessingWorker`使用PySide6的信号和槽机制与UI线程通信。它为进度更新（`progress_updated`）、单个文件完成（`file_finished`）和整个任务完成（`finished`）发出信号，从而使UI能够响应式地安全更新。
+  - **拖放和上下文菜单**: 自定义的`SortableTableWidget`用于文件列表，提供直观的拖放重新排序和右键单击上下文菜单，用于删除文件或打开其位置等操作。
 
 - **PDF智能识别 (OCR)**
  - **PDF转图片**: 复用 `core.pdf2img` 模块，将PDF页面转换为200 DPI的PNG图片，并保存到临时目录。
@@ -189,7 +190,7 @@ uv run main.py
    - 在用户主目录下的 `.pdfoptimizer/.env` 文件中安全地加载和保存`OCR_API_BASE_URL`, `OCR_API_KEY`等信息。
  - **UI集成**:
    - 在 `ui.main_window` 中新增一个 "PDF OCR" 标签页。
-   - 创建新的 `OcrWorker` 线程，在后台执行PDF转换和API调用，避免UI阻塞。
+   - 通用的 `ProcessingWorker` 线程用于在后台执行PDF转换和API调用，避免UI阻塞。
    - 通过信号和槽机制 (`Signal`, `Slot`) 更新界面状态和进度。
 
 - **Markdown转DOCX (Pandoc)**

@@ -1,4 +1,3 @@
-
 # PDF Optimizer - A Powerful PDF Optimization Tool
 
 A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, and bookmark management.
@@ -52,42 +51,41 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
 
 ```mermaid
 graph TD
-   subgraph User Interface (UI Layer - PySide6)
-       A[main_window.py] -- Manages UI and signals --> B{User Actions};
-       B -- Select Files, Click Buttons, etc. --> A;
-   end
+    subgraph "User Interface (UI Layer - PySide6)"
+        A[main_window.py] -- Aggregates --> T1[OptimizeTab];
+        A -- Aggregates --> T2[MergeTab];
+        A -- Aggregates --> T3[SplitTab];
+        A -- Aggregates --> T4[... other tabs];
+        T1 -- Inherits from --> BaseTabWidget;
+        T2 -- Inherits from --> BaseTabWidget;
+        T3 -- Inherits from --> BaseTabWidget;
+        BaseTabWidget -- Handles User Input --> C{User Actions};
+    end
 
-   subgraph Application Control (Control Layer)
-       C[main_window.py] -- Initiates workers --> D{Workers (QThread)};
-       A -- Signals to --> C;
-   end
+    subgraph "Application Control (Control Layer)"
+        direction LR
+        BaseTabWidget -- Initiates --> W[ProcessingWorker (QThread)];
+        W -- Is given --> F_TASK(Target Function e.g., optimize_pdf);
+    end
 
-   subgraph Core Logic (Backend)
-       direction LR
-       D -- Calls backend functions --> E[core/optimizer.py];
-       D -- Calls backend functions --> F[core/merger.py];
-       D -- Calls backend functions --> G[core/division.py];
-       D -- Calls backend functions --> H[core/pdf2img.py];
-       D -- Calls backend functions --> I[core/add_bookmark.py];
-       D -- Calls backend functions --> J[core/ocr.py];
-       J -- Uses utility --> K[core/utils.py];
-       J -- Calls --> L[core/converter.py];
-       L -- Uses utility --> K;
-   end
+    subgraph "Core Logic (Backend)"
+        direction LR
+        F_TASK -- Calls --> CORE_OPT[core/optimizer.py];
+        F_TASK -- Calls --> CORE_MERGE[core/merger.py];
+        F_TASK -- Calls --> CORE_OCR[core/ocr.py];
+        F_TASK -- Calls --> CORE_ETC[... other core modules];
+    end
 
-   subgraph External Dependencies (Tools & Services)
-       direction LR
-       E -- Uses library --> M[Pikepdf];
-       F -- Uses library --> M;
-       G -- Uses library --> N[PyMuPDF];
-       H -- Uses library --> N;
-       J -- Calls API --> O[LLM API (e.g., GPT-4o)];
-       L -- Calls executable --> P[Pandoc];
-       E -- Calls executable --> Q[Ghostscript];
-       F -- Calls executable --> Q;
-   end
+    subgraph "External Dependencies (Tools & Services)"
+        direction LR
+        CORE_OPT -- Uses --> Pikepdf;
+        CORE_OPT -- Uses --> Ghostscript;
+        CORE_OCR -- Calls API --> LLM_API[LLM API (e.g., GPT-4o)];
+        CORE_OCR -- Uses --> Pandoc;
+    end
 
-   C -- Updates UI based on results --> A;
+    W -- Emits signals --> BaseTabWidget;
+    BaseTabWidget -- Updates UI based on signals --> A;
 ```
 
   ## Screenshot
@@ -221,10 +219,11 @@ uv run main.py
   - Saves the pixmap to the specified image format (PNG/JPG).
 
 - **Graphical User Interface (PySide6)**
-  - Uses `QMainWindow` and `QTabWidget` to build the main window and five functional tabs (Optimize, Merge, Split, To Image, To Curves).
-  - Employs a custom `SortableTableWidget` that overrides drag-and-drop events (`dragEnterEvent`, `dragMoveEvent`, `dropEvent`) and the context menu (`contextMenuEvent`) to support drag-and-drop sorting, deletion, moving up/down, and opening the file location.
-  - Implements multithreading with `QThread` (encapsulated in `BaseWorker` and its subclasses like `OptimizeWorker`, `MergeWorker`, etc.) and uses `Signal` to update the progress bar and table status in real-time without blocking the UI.
-  - Resource paths are handled by `resource_path` to be compatible with both the development environment and the PyInstaller `_MEIPASS` directory.
+  - **Modular UI with Tab Widgets**: The UI is built around a `QMainWindow` that hosts a `QTabWidget`. Each major function (Optimize, Merge, OCR, etc.) is encapsulated in its own dedicated `QWidget` class (e.g., `OptimizeTab`, `MergeTab`), which are then loaded as tabs. This decouples the UI logic of each function from the main window.
+  - **Shared UI Logic with `BaseTabWidget`**: A `BaseTabWidget` class is used as a parent for most tabs. It abstracts common UI elements and logic, such as the file list table (`SortableTableWidget`), progress bars, control buttons, and status labels, significantly reducing code duplication.
+  - **Generic Asynchronous Worker**: All time-consuming backend operations are executed in a separate thread to prevent UI freezing. A single, generic `ProcessingWorker` class (inheriting from `QThread`) is used for all tasks. This worker is instantiated with a target function (e.g., `core.optimizer.run_optimization`) and its arguments, eliminating the need for numerous specific worker classes.
+  - **Signal-Based UI Updates**: The `ProcessingWorker` communicates with the UI thread using PySide6's signal and slot mechanism. It emits signals for progress updates (`progress_updated`), individual file completion (`file_finished`), and overall task completion (`finished`), allowing the UI to update reactively and safely.
+  - **Drag-and-Drop and Context Menus**: A custom `SortableTableWidget` is used for file lists, providing intuitive drag-and-drop reordering and a right-click context menu for actions like deleting files or opening their location.
 
 - **PDF Intelligent Recognition (OCR)**
  - **PDF to Images**: Reuse the `core.pdf2img` module to convert PDF pages to 200 DPI PNG images and save them to a temporary directory.
@@ -242,7 +241,7 @@ uv run main.py
  - **UI Integration**:
    - Add a new "PDF OCR" tab in `ui.main_window`.
    - Before starting the task, `check_pandoc` is called to verify its installation and provides user guidance if it's missing.
-   - Create a new `OcrWorker` thread to execute PDF conversion and API calls in the background, preventing UI blocking.
+   - The generic `ProcessingWorker` thread is used to execute PDF conversion and API calls in the background, preventing UI blocking.
    - Update the interface status and progress through the signal and slot mechanism (`Signal`, `Slot`).
 
 - **Packaging as an Executable (PyInstaller)**
