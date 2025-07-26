@@ -63,8 +63,11 @@ class OcrConfigDialog(QDialog):
         super().__init__(parent)
         self.env_path = env_path or os.path.join(os.path.expanduser("~"), ".pdfoptimizer", ".env")
         self.models_path = os.path.join(os.path.dirname(self.env_path), "ocr_models.txt")
-        self.fetch_models_worker = None  # 用于获取模型列表的后台线程
-        
+        self.fetch_models_worker = None
+        self.api_keys = {}  # 用于存储不同提供商的API密钥
+        self.model_names = {} # 用于存储不同提供商的模型名称
+        self.previous_provider_index = 0 # 用于跟踪切换前的提供商
+
         self.setWindowTitle("OCR 配置")
         self.setWindowIcon(QIcon(resource_path("ui/app.ico"))) # 尝试设置图标
         self.setFixedSize(500, 400)  # 设置一个固定大小
@@ -73,16 +76,22 @@ class OcrConfigDialog(QDialog):
         self._load_config()
         
         # 连接信号和槽
+        self.api_provider_combo.currentIndexChanged.connect(self._on_provider_changed)
         self.api_url_input.textChanged.connect(self._on_api_url_changed)
         self.api_key_input.textChanged.connect(self._on_api_key_changed)
         self.fetch_models_button.clicked.connect(self._fetch_models)
+        self.save_button.clicked.connect(self.accept)
+        self.cancel_button.clicked.connect(self.reject)
         
     def _setup_ui(self):
         """设置UI布局"""
         layout = QVBoxLayout(self)
         
         # --- 配置表单 ---
-        form_layout = QFormLayout()
+        self.form_layout = QFormLayout()
+        
+        self.api_provider_combo = QComboBox()
+        self.api_provider_combo.addItems(["OpenAI-Compatible", "Mistral API"])
         
         self.api_url_input = QLineEdit()
         self.api_key_input = QLineEdit()
@@ -90,19 +99,25 @@ class OcrConfigDialog(QDialog):
         
         self.model_name_combo = QComboBox()
         self.model_name_combo.setEditable(True)  # 允许用户手动输入模型名称
-        # 添加一些常见的模型名称作为默认选项
-        common_models = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "glm-4v"]
-        self.model_name_combo.addItems(common_models)
         
         self.prompt_input = QTextEdit()
         self.prompt_input.setFixedHeight(100)  # 设置提示词输入框的高度
         
-        form_layout.addRow("API Base URL:", self.api_url_input)
-        form_layout.addRow("API Key:", self.api_key_input)
-        form_layout.addRow("模型名称:", self.model_name_combo)
-        form_layout.addRow("提示词 (Prompt):", self.prompt_input)
+        self.form_layout.addRow("API 提供商:", self.api_provider_combo)
         
-        layout.addLayout(form_layout)
+        # 将 API Base URL 的标签和输入框保存为成员变量，以便隐藏/显示
+        # 创建一个 QWidget 作为容器，以便更容易地隐藏和显示整行
+        self.api_url_widget = QWidget()
+        api_url_layout = QHBoxLayout(self.api_url_widget)
+        api_url_layout.setContentsMargins(0, 0, 0, 0)
+        api_url_layout.addWidget(self.api_url_input)
+        self.api_url_label = self.form_layout.addRow("API Base URL:", self.api_url_widget)
+
+        self.form_layout.addRow("API Key:", self.api_key_input)
+        self.form_layout.addRow("模型名称:", self.model_name_combo)
+        self.form_layout.addRow("提示词 (Prompt):", self.prompt_input)
+        
+        layout.addLayout(self.form_layout)
         
         # --- 模型获取按钮 ---
         self.fetch_models_button = QPushButton("获取模型列表")
@@ -126,8 +141,8 @@ class OcrConfigDialog(QDialog):
         self.save_button = QPushButton("保存")
         self.cancel_button = QPushButton("取消")
         
-        self.save_button.clicked.connect(self.accept)
-        self.cancel_button.clicked.connect(self.reject)
+        # self.save_button.clicked.connect(self.accept) # 改为在accept中直接调用save
+        # self.cancel_button.clicked.connect(self.reject)
         
         buttons_layout.addStretch()
         buttons_layout.addWidget(self.save_button)
@@ -137,11 +152,20 @@ class OcrConfigDialog(QDialog):
     def _load_config(self):
         """从 .env 文件加载配置"""
         if os.path.exists(os.path.dirname(self.env_path)):
-            dotenv.load_dotenv(dotenv_path=self.env_path)
-            
+            # 强制从.env文件重新加载，并覆盖已存在的环境变量
+            # 这是确保对话框每次打开都显示最新配置的关键
+            dotenv.load_dotenv(dotenv_path=self.env_path, override=True)
+        
+        # 1. 加载所有配置到内存
+        provider = os.getenv("OCR_API_PROVIDER", "OpenAI-Compatible")
         self.api_url_input.setText(os.getenv("OCR_API_BASE_URL", "https://api.openai.com/v1"))
-        self.api_key_input.setText(os.getenv("OCR_API_KEY", ""))
-        self.model_name_combo.setCurrentText(os.getenv("OCR_MODEL_NAME", "gpt-4o"))
+        self.api_keys["Mistral API"] = os.getenv("MISTRAL_API_KEY", "")
+        self.api_keys["OpenAI-Compatible"] = os.getenv("OPENAI_API_KEY", "")
+        
+        # 兼容旧的 OCR_MODEL_NAME，并分别加载新的特定于提供商的模型名称
+        self.model_names["Mistral API"] = os.getenv("MISTRAL_MODEL_NAME", "mistral-ocr-latest")
+        # 为OpenAI兼容模式提供一个更通用的默认值，并从旧变量迁移
+        self.model_names["OpenAI-Compatible"] = os.getenv("OPENAI_MODEL_NAME", os.getenv("OCR_MODEL_NAME", "gpt-4o"))
         self.prompt_input.setPlainText(os.getenv("OCR_PROMPT", "这是一个PDF页面。请准确识别所有内容，并将其转换为结构良好的Markdown格式。"))
         
         # 加载保存的模型列表
@@ -170,45 +194,55 @@ class OcrConfigDialog(QDialog):
                 if model not in existing_items:
                     self.model_name_combo.addItem(model)
         
-        # 更新获取模型按钮的状态
-        self._update_fetch_button_state()
-        
+        # --- 初始化UI状态 ---
+        # 2. 设置UI显示，同时防止加载时触发不必要的信号
+        # 这是修复配置无法保存的关键：在以编程方式设置初始值时，阻止信号触发
+        self.api_provider_combo.blockSignals(True)
+        self.api_provider_combo.setCurrentText(provider)
+        self.api_provider_combo.blockSignals(False)
+
+        # 3. 手动初始化跟踪变量和UI状态，因为信号被阻止了
+        self.previous_provider_text = provider
+        self._update_ui_for_provider(provider) # 更新UI（API Key输入框等）
+        self._update_models_for_provider(provider) # 更新模型列表
+
+
     def save_config(self):
         """保存配置到 .env 文件"""
         try:
             env_dir = os.path.dirname(self.env_path)
             if not os.path.exists(env_dir):
                 os.makedirs(env_dir)
-                
-            # 保存配置项
+
+            # 在保存前，将当前输入框的API密钥更新到字典中
+            current_provider = self.api_provider_combo.currentText()
+            current_provider = self.api_provider_combo.currentText()
+            self.api_keys[current_provider] = self.api_key_input.text()
+            self.model_names[current_provider] = self.model_name_combo.currentText()
+
+            # 保存所有配置项
+            dotenv.set_key(self.env_path, "OCR_API_PROVIDER", self.api_provider_combo.currentText())
             dotenv.set_key(self.env_path, "OCR_API_BASE_URL", self.api_url_input.text())
-            dotenv.set_key(self.env_path, "OCR_API_KEY", self.api_key_input.text())
-            dotenv.set_key(self.env_path, "OCR_MODEL_NAME", self.model_name_combo.currentText())
+            # 保存提示词
             dotenv.set_key(self.env_path, "OCR_PROMPT", self.prompt_input.toPlainText())
+
+            # 分别保存不同提供商的API密钥和模型名称
+            dotenv.set_key(self.env_path, "MISTRAL_API_KEY", self.api_keys.get("Mistral API", ""))
+            dotenv.set_key(self.env_path, "OPENAI_API_KEY", self.api_keys.get("OpenAI-Compatible", ""))
+            dotenv.set_key(self.env_path, "MISTRAL_MODEL_NAME", self.model_names.get("Mistral API", "mistral-ocr-latest"))
+            dotenv.set_key(self.env_path, "OPENAI_MODEL_NAME", self.model_names.get("OpenAI-Compatible", "gpt-4o"))
             
-            # 验证配置是否已保存
-            if os.path.exists(self.env_path):
-                # 重新加载配置以验证
-                dotenv.load_dotenv(dotenv_path=self.env_path, override=True)
-                saved_api_url = os.getenv("OCR_API_BASE_URL", "")
-                saved_api_key = os.getenv("OCR_API_KEY", "")
-                saved_model_name = os.getenv("OCR_MODEL_NAME", "")
-                saved_prompt = os.getenv("OCR_PROMPT", "")
-                
-                # 检查是否所有配置都已正确保存
-                if (saved_api_url == self.api_url_input.text() and
-                    saved_api_key == self.api_key_input.text() and
-                    saved_model_name == self.model_name_combo.currentText() and
-                    saved_prompt == self.prompt_input.toPlainText()):
-                    QMessageBox.information(self, "成功", "OCR配置已成功保存。")
-                    return True
-                else:
-                    QMessageBox.warning(self, "保存失败", "配置未能正确保存到文件。")
-                    return False
-            else:
-                QMessageBox.warning(self, "保存失败", "配置文件未能创建。")
-                return False
-                
+            # 可以考虑移除旧的 OCR_MODEL_NAME
+            if os.getenv("OCR_MODEL_NAME"):
+                try:
+                    # 尝试从.env文件中删除旧键
+                    dotenv.unset_key(self.env_path, "OCR_MODEL_NAME")
+                except Exception as e:
+                    print(f"无法移除旧的 OCR_MODEL_NAME 键: {e}") # 记录错误但不影响用户
+
+            QMessageBox.information(self, "成功", "OCR配置已成功保存。")
+            return True
+
         except Exception as e:
             QMessageBox.warning(self, "保存失败", f"保存OCR配置失败: {e}")
             return False
@@ -217,6 +251,7 @@ class OcrConfigDialog(QDialog):
         """重写 accept 方法，在关闭对话框前保存配置"""
         if self.save_config():
             super().accept()
+        # 如果保存失败，对话框不会关闭
             
     def _on_api_url_changed(self):
         """当API URL输入框内容改变时"""
@@ -228,11 +263,88 @@ class OcrConfigDialog(QDialog):
         
     def _update_fetch_button_state(self):
         """更新获取模型按钮的状态"""
+        provider = self.api_provider_combo.currentText()
+        if provider == "Mistral API":
+            self.fetch_models_button.setEnabled(False)
+            self.fetch_models_button.setToolTip("Mistral API 不需要手动获取模型列表")
+            return
+
+        # 对于 OpenAI-Compatible provider
         url = self.api_url_input.text().strip()
         key = self.api_key_input.text().strip()
-        # 只有当API URL和API Key都不为空时才启用按钮
-        self.fetch_models_button.setEnabled(bool(url and key))
+        is_enabled = bool(url and key)
+        self.fetch_models_button.setEnabled(is_enabled)
+        if is_enabled:
+            self.fetch_models_button.setToolTip("从API获取可用的模型列表")
+        else:
+            self.fetch_models_button.setToolTip("请先填写 API Base URL 和 API Key")
+
+    def _on_provider_changed(self, index):
+        """当API提供商改变时，更新UI"""
+        # 1. 保存切换前的API Key
+        # 注意：这里需要确保 `self.previous_provider_text` 在首次运行时是有效的
+        if hasattr(self, 'previous_provider_text'):
+            self.api_keys[self.previous_provider_text] = self.api_key_input.text()
+            self.model_names[self.previous_provider_text] = self.model_name_combo.currentText()
+
+        # 2. 更新UI
+        current_provider = self.api_provider_combo.currentText()
+        self._update_ui_for_provider(current_provider)
+        self._update_models_for_provider(current_provider)
         
+        # 3. 更新 previous_provider_text 以备下次切换
+        self.previous_provider_text = current_provider
+
+    def _update_ui_for_provider(self, provider):
+        """根据提供商更新UI元素（API Key输入框，URL可见性等）"""
+        is_mistral = provider == "Mistral API"
+        
+        # 隐藏/显示 API Base URL 行
+        # 直接操作 QFormLayout 的 setRowVisible 可能更可靠
+        for i in range(self.form_layout.rowCount()):
+            label_item = self.form_layout.itemAt(i, QFormLayout.LabelRole)
+            if label_item and label_item.widget().text() == "API Base URL:":
+                self.form_layout.setRowVisible(i, not is_mistral)
+                break
+
+        # 加载新提供商的API Key
+        self.api_key_input.setText(self.api_keys.get(provider, ""))
+        
+        # 更新获取按钮状态
+        self._update_fetch_button_state()
+
+    def _update_models_for_provider(self, provider):
+        """根据提供商更新模型列表"""
+        self.model_name_combo.clear()
+        if provider == "Mistral API":
+            # 添加 Mistral 的模型
+            mistral_models = ["mistral-ocr-latest", "mistral-large-latest"]
+            self.model_name_combo.addItems(mistral_models)
+            # 恢复上次保存的 Mistral 模型
+            saved_model = self.model_names.get("Mistral API", "mistral-ocr-latest")
+            self.model_name_combo.setCurrentText(saved_model)
+        else: # OpenAI-Compatible
+            # 加载保存的或默认的 OpenAI 模型
+             # 加载保存的模型列表
+            if os.path.exists(self.models_path):
+                try:
+                    with open(self.models_path, 'r', encoding='utf-8') as f:
+                        models = [line.strip() for line in f.readlines() if line.strip()]
+                    if models:
+                        self.model_name_combo.addItems(models)
+                except Exception as e:
+                    print(f"加载模型列表失败: {e}")
+            else:
+                common_models = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "glm-4v"]
+                self.model_name_combo.addItems(common_models)
+
+            # 恢复上次保存的 OpenAI 模型（如果存在）
+            saved_model = self.model_names.get("OpenAI-Compatible", "gpt-4o")
+            # 确保即使模型列表为空，也能设置当前文本
+            if self.model_name_combo.findText(saved_model) == -1:
+                self.model_name_combo.addItem(saved_model)
+            self.model_name_combo.setCurrentText(saved_model)
+            
     def _fetch_models(self):
         """获取模型列表"""
         api_url = self.api_url_input.text().strip()
@@ -288,8 +400,8 @@ class OcrConfigDialog(QDialog):
     def _on_fetch_finished(self):
         """当后台线程结束时"""
         # 重新启用按钮并恢复文本
-        self.fetch_models_button.setEnabled(True)
         self.fetch_models_button.setText("获取模型列表")
+        self._update_fetch_button_state() # 根据当前输入决定按钮是否可用
         self.fetch_models_worker = None  # 释放线程引用
 
 # 用于测试对话框的主函数

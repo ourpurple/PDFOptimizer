@@ -27,7 +27,7 @@ from core import (
     __version__,
     batch_add_bookmarks_to_pdfs
 )
-from core.ocr import process_images_with_model, encode_image_to_base64
+from core.ocr import process_images_with_model
 from .custom_dialog import CustomMessageBox, BookmarkEditDialog
 import json
 import dotenv
@@ -475,12 +475,14 @@ class SplitWorker(BaseWorker):
                 })
             progress = int((i + 1) / total_files * 100)
             self.total_progress.emit(progress)
-class OcrWorker(BaseWorker):
+class OcrWorker(QThread):
     """PDF OCR 工作线程"""
     ocr_progress = Signal(str)
-    ocr_page_finished = Signal(str)
     ocr_finished = Signal(dict)
-    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir):
+    total_progress = Signal(int)
+    preview_updated = Signal(str)  # 新增信号，用于更新预览
+
+    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir, api_provider):
         super().__init__()
         self.file_path = file_path
         self.api_key = api_key
@@ -488,8 +490,10 @@ class OcrWorker(BaseWorker):
         self.api_base_url = api_base_url
         self.prompt_text = prompt_text
         self.temp_dir = temp_dir
+        self.api_provider = api_provider
         self._is_running = True
         self.logger = self._setup_logger()
+        self.preview_content = ""  # 用于累积预览内容
 
     def _setup_logger(self):
         """为当前OCR任务配置独立的日志记录器"""
@@ -508,205 +512,112 @@ class OcrWorker(BaseWorker):
             
         return logger
 
+    def stop(self):
+        self._is_running = False
+
     def run(self):
         if not self._is_running:
             return
 
         self.logger.info(f"===== OCR任务开始: {os.path.basename(self.file_path)} =====")
+        self.logger.info(f"使用提供商: {self.api_provider}")
         try:
-            # 1. 将PDF转换为图片
-            self.ocr_progress.emit("正在将PDF转换为图片...")
-            self.logger.info("步骤1: 开始将PDF转换为图片...")
-            file_name_without_ext = os.path.splitext(os.path.basename(self.file_path))[0]
-            image_output_dir = os.path.join(self.temp_dir, file_name_without_ext)
-            
-            if os.path.exists(image_output_dir):
-                import shutil
-                shutil.rmtree(image_output_dir)
-            os.makedirs(image_output_dir)
-            convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=200)
-            if not convert_result["success"]:
-                self.logger.error(f"PDF转图片失败: {convert_result['message']}")
-                raise Exception(f"PDF转图片失败: {convert_result['message']}")
-            
-            self.logger.info("PDF转图片成功。")
-            image_paths = sorted(
-                [os.path.join(image_output_dir, f) for f in os.listdir(image_output_dir) if f.lower().endswith('.png')],
-                key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('页面')[-1].replace(']', '')) if '页面' in x else 0)
-            if not image_paths:
-                self.logger.error("没有从PDF中生成任何图片。")
-                raise Exception("没有从PDF中生成任何图片。")
-            
-            # 2. 调用OCR模型处理图片
-            def progress_callback(current, total, error=None):
+            image_paths = []
+            pdf_path = None
+
+            if self.api_provider == "Mistral API":
+                # 对于Mistral API，我们直接传递PDF文件路径，不进行图片转换
+                self.logger.info("步骤1: Mistral API模式，跳过PDF转图片。")
+                self.ocr_progress.emit("Mistral API模式，直接处理PDF...")
+                pdf_path = self.file_path
+            else:
+                # 对于类OpenAI API，需要先将PDF转换为图片
+                self.ocr_progress.emit("正在将PDF转换为图片...")
+                self.logger.info("步骤1: 开始将PDF转换为图片...")
+                file_name_without_ext, _ = os.path.splitext(os.path.basename(self.file_path))
+                image_output_dir = os.path.join(self.temp_dir, file_name_without_ext)
+                
+                if os.path.exists(image_output_dir):
+                    import shutil
+                    shutil.rmtree(image_output_dir)
+                os.makedirs(image_output_dir)
+                
+                convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=200)
+                if not convert_result["success"]:
+                    self.logger.error(f"PDF转图片失败: {convert_result['message']}")
+                    raise Exception(f"PDF转图片失败: {convert_result['message']}")
+                
+                self.logger.info("PDF转图片成功。")
+                image_paths = sorted(
+                    [os.path.join(image_output_dir, f) for f in os.listdir(image_output_dir) if f.lower().endswith('.png')],
+                    key=lambda x: int(re.search(r'(\d+)', os.path.basename(x)).group(1)) if re.search(r'(\d+)', os.path.basename(x)) else 0
+                )
+                
+                if not image_paths:
+                    self.logger.error("没有从PDF中生成任何图片。")
+                    raise Exception("没有从PDF中生成任何图片。")
+
+            # 2. 调用核心OCR处理函数
+            def progress_callback(current, total, message, page_content=""):
                 if not self._is_running:
-                    raise InterruptedError("OCR task was stopped.")
-                if error:
-                    self.ocr_progress.emit(f"处理中: {current}/{total} (错误: {error})")
-                else:
-                    self.ocr_progress.emit(f"AI识别中: {current}/{total}页")
+                    # 这将中断 process_images_with_model 中的循环
+                    return False
+                self.ocr_progress.emit(f"AI识别中: {current}/{total}页 - {message}")
                 progress = int((current / total) * 100)
                 self.total_progress.emit(progress)
-            
+                # 更新预览内容 - 只显示当前页内容
+                if page_content:
+                    # 如果是Mistral API，page_content可能包含所有页面的内容
+                    if current == total and total == 1 and "\n\n---\n\n" in page_content:
+                        self.preview_content = page_content  # 直接替换
+                    else:
+                        # 如果是OpenAI兼容API，page_content是单页内容，只显示当前页
+                        self.preview_content = page_content
+                    self.preview_updated.emit(self.preview_content)
+                return True
+
             self.ocr_progress.emit("正在调用AI模型进行识别...")
-            self.logger.info("步骤2: 开始调用AI模型进行识别...")
+            self.logger.info("步骤2: 调用核心OCR模块...")
             
-            full_markdown_content = []
-            total_images = len(image_paths)
-            
-            for i, image_path in enumerate(image_paths):
-                if not self._is_running:
-                    raise InterruptedError("OCR task was stopped.")
-                    
-                progress = int((i / total_images) * 100)
-                self.total_progress.emit(progress)
-                self.logger.info(f"正在处理第 {i+1}/{total_images} 页: {os.path.basename(image_path)}")
-                    
-                base64_image = encode_image_to_base64(image_path)
-                if not base64_image:
-                    error_message = f"无法编码图片: {os.path.basename(image_path)}"
-                    self.logger.error(f"页面 {i+1} 处理失败: {error_message}")
-                    page_content = f"\n\n--- 页面 {i+1} 处理失败: {error_message} ---\n\n"
-                    full_markdown_content.append(page_content)
-                    if progress_callback:
-                        progress_callback(i + 1, total_images, error_message)
-                    self.ocr_page_finished.emit(page_content)
-                    continue
-                    
-                payload = {
-                    "model": self.model_name,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": self.prompt_text},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/png;base64,{base64_image}"
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    "max_tokens": 4096
-                }
-                
-                page_content = ""
-                max_retries = 3
-                retry_delay = 2
-                api_success = False  # 标记API调用是否成功
+            ocr_result = process_images_with_model(
+                image_paths=image_paths,
+                pdf_path=pdf_path, # 新增参数
+                api_provider=self.api_provider,
+                api_key=self.api_key,
+                api_base_url=self.api_base_url,
+                model_name=self.model_name,
+                prompt_text=self.prompt_text,
+                logger=self.logger,
+                progress_callback=progress_callback
+            )
 
-                for attempt in range(max_retries):
-                    if not self._is_running:
-                        raise InterruptedError("OCR task was stopped.")
-                    
-                    try:
-                        self.logger.info(f"页面 {i+1}: 第 {attempt + 1} 次尝试调用API...")
-                        with httpx.Client(timeout=120) as client:
-                            response = client.post(
-                                f"{self.api_base_url}/chat/completions",
-                                headers={
-                                    "Content-Type": "application/json",
-                                    "Authorization": f"Bearer {self.api_key}"
-                                },
-                                json=payload
-                            )
-                            response.raise_for_status()
-                            
-                        response_data = response.json()
-                        # 检查API响应结构
-                        if "choices" not in response_data:
-                            raise ValueError("API响应缺少 'choices' 字段")
-                        choices = response_data["choices"]
-                        if not isinstance(choices, list) or len(choices) == 0:
-                            raise ValueError("API响应中的 'choices' 字段不是非空列表")
-                        first_choice = choices[0]
-                        if "message" not in first_choice:
-                            raise ValueError("API响应中的第一个choice缺少 'message' 字段")
-                        message = first_choice["message"]
-                        if "content" not in message:
-                            raise ValueError("API响应中的 'message' 字段缺少 'content' 字段")
-                        
-                        page_content = message["content"]
-                        # 记录获取到的内容长度，用于诊断问题
-                        self.logger.info(f"页面 {i+1}: 第 {attempt + 1} 次尝试成功，内容长度: {len(page_content)} 字符。")
-                        if progress_callback:
-                            progress_callback(i + 1, total_images)
-                        api_success = True
-                        break
-                        
-                    except (httpx.HTTPStatusError, httpx.RequestError) as e:
-                        error_message = f"API请求失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
-                        self.logger.warning(f"页面 {i+1}: {error_message}")
-                        self.ocr_progress.emit(f"第 {i+1} 页识别失败 (尝试 {attempt + 1}/{max_retries})")
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                        else:
-                            final_error_message = f"API返回错误 (页面 {i+1}): {max_retries}次尝试后失败 - {str(e)}"
-                            self.logger.error(f"页面 {i+1}: {final_error_message}")
-                            page_content = f"\n\n--- {final_error_message} ---\n\n"
-                            if progress_callback:
-                                progress_callback(i + 1, total_images, final_error_message)
+            if not self._is_running:
+                raise InterruptedError("OCR task was stopped.")
 
-                    except Exception as e:
-                        error_message = f"处理页面 {i+1} 时发生未知错误: {str(e)}"
-                        self.logger.error(f"页面 {i+1}: {error_message}", exc_info=True)
-                        page_content = f"\n\n--- {error_message} ---\n\n"
-                        if progress_callback:
-                            progress_callback(i + 1, total_images, error_message)
-                        break
-                
-                # 如果API调用从未成功，确保添加错误信息而不是空字符串
-                if not api_success and not page_content:
-                    error_message = f"页面 {i+1}: 所有重试均失败，未能获取OCR内容"
-                    page_content = f"\n\n--- {error_message} ---\n\n"
-                    self.logger.error(f"页面 {i+1}: {error_message}")
-                
-                full_markdown_content.append(page_content)
-                self.ocr_page_finished.emit(page_content)
-
+            # 3. 处理结果
             self.total_progress.emit(100)
-            self.logger.info("所有页面处理完毕。")
-            
-            # 在合并前记录每个页面内容的长度
-            total_chars = 0
-            for idx, content in enumerate(full_markdown_content):
-                self.logger.info(f"页面 {idx+1} 内容长度: {len(content)} 字符。")
-                total_chars += len(content)
-            self.logger.info(f"合并前总字符数: {total_chars} 字符。")
-            
-            final_markdown = "\n\n---\n\n".join(full_markdown_content)
-            
-            # 记录合并后的内容长度
-            self.logger.info(f"合并后总字符数: {len(final_markdown)} 字符。")
-            
-            # 增加日志，记录最终内容的开头和结尾，帮助诊断
-            self.logger.info(f"最终 Markdown 内容开头: {final_markdown[:100]}...")
-            self.logger.info(f"最终 Markdown 内容结尾: ...{final_markdown[-100:]}")
-            
-            ocr_result = {
-                "success": True,
-                "markdown_content": final_markdown,
-                "message": f"成功处理 {total_images} 张图片。",
-                "logger": self.logger  # 传递logger实例
-            }
-            
+            ocr_result['logger'] = self.logger # 确保logger实例被传递回去
             self.ocr_finished.emit(ocr_result)
-            self.logger.info("===== OCR任务成功结束 =====")
+            
+            if ocr_result.get("success"):
+                 self.logger.info("===== OCR任务成功结束 =====")
+            else:
+                 self.logger.warning(f"===== OCR任务结束，但有错误: {ocr_result.get('message')} =====")
+
         except InterruptedError:
              self.logger.warning("任务已手动停止。")
              self.ocr_finished.emit({"success": False, "message": "任务已手动停止。"})
              self.logger.info("===== OCR任务已停止 =====")
+        except NotImplementedError as e:
+            self.logger.error(f"OCR功能尚未完全实现: {str(e)}", exc_info=True)
+            self.ocr_finished.emit({"success": False, "message": f"功能待定: {str(e)}", "logger": self.logger})
+            self.logger.info("===== OCR任务因功能未实现而终止 =====")
         except Exception as e:
             self.logger.error(f"OCR任务发生未知严重错误: {str(e)}", exc_info=True)
-            self.ocr_finished.emit({"success": False, "message": str(e)})
+            self.ocr_finished.emit({"success": False, "message": str(e), "logger": self.logger})
             self.logger.info("===== OCR任务因错误而终止 =====")
-        self.total_progress.emit(100)
-    
-    def stop(self):
-        self._is_running = False
-        super().stop()
+        finally:
+            self.total_progress.emit(100)
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1755,14 +1666,27 @@ class MainWindow(QMainWindow):
             
         # 从 .env 文件重新加载配置
         if os.path.exists(self.env_path):
-            dotenv.load_dotenv(dotenv_path=self.env_path)
+            dotenv.load_dotenv(dotenv_path=self.env_path, override=True)
             
-        api_key = os.getenv("OCR_API_KEY", "")
+        api_provider = os.getenv("OCR_API_PROVIDER", "OpenAI-Compatible")
+
+        if api_provider == "Mistral API":
+            api_key = os.getenv("MISTRAL_API_KEY", "")
+            model_name = os.getenv("MISTRAL_MODEL_NAME", "mistral-ocr-latest")
+        else:
+            api_key = os.getenv("OPENAI_API_KEY", "")
+            model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-4o")
+
         if not api_key:
-            CustomMessageBox.warning(self, "警告", "请在配置对话框中设置API Key。")
+            CustomMessageBox.warning(self, "警告", f"请在配置对话框中为 {api_provider} 设置API Key。")
+            self._open_ocr_config_dialog() # 引导用户去配置
             return
             
         self._reset_ocr_ui()
+        # 清空预览内容
+        if hasattr(self, 'ocr_worker'):
+            self.ocr_worker.preview_content = ""
+        self.ocr_result_text.clear()
         self._update_controls_state(is_task_running=True)
         file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
 
@@ -1773,7 +1697,6 @@ class MainWindow(QMainWindow):
         
         # 从环境变量获取配置
         api_base_url = os.getenv("OCR_API_BASE_URL", "https://api.openai.com/v1")
-        model_name = os.getenv("OCR_MODEL_NAME", "gpt-4o")
         prompt_text = os.getenv("OCR_PROMPT", "这是一个PDF页面。请准确识别所有内容，并将其转换为结构良好的Markdown格式。")
         
         self.ocr_worker = OcrWorker(
@@ -1782,86 +1705,78 @@ class MainWindow(QMainWindow):
             model_name=model_name,
             api_base_url=api_base_url,
             prompt_text=prompt_text,
-            temp_dir=self.temp_dir
+            temp_dir=self.temp_dir,
+            api_provider=api_provider
         )
         self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
-        self.ocr_worker.ocr_page_finished.connect(self.on_ocr_page_finished)  # 连接新信号
+        self.ocr_worker.preview_updated.connect(self.ocr_result_text.setPlainText)  # 连接预览更新信号
         self.ocr_worker.ocr_finished.connect(self.on_ocr_finished)
         self.ocr_worker.finished.connect(lambda: self._update_controls_state(is_task_running=False))
         self.ocr_worker.start()
-        self.status_label.setText(f"正在使用 {model_name} 进行OCR识别...")
+        self.status_label.setText(f"正在使用 {api_provider} - {model_name} 进行OCR识别...")
         
-    def on_ocr_progress(self, message):
-        self.ocr_table.setItem(0, 1, QTableWidgetItem(message))
-        
-    def on_ocr_page_finished(self, markdown_content):
-        """处理每页识别完成的信号"""
-        self.ocr_result_text.setMarkdown(markdown_content)
-        
+
+
     def on_ocr_finished(self, result):
-        # 获取从Worker传递过来的logger，如果不存在则使用默认的
         logger = result.get("logger", logging.getLogger(__name__))
         
         if result.get("success"):
-            raw_markdown_content = result.get("markdown_content", "")
+            markdown_content = result.get("markdown_content", "")
+            logger.info(f"接收到OCR结果，原始内容长度: {len(markdown_content)} 字符。")
             
-            # 记录原始内容长度
-            logger.info(f"接收到OCR结果，原始内容长度: {len(raw_markdown_content)} 字符。")
-            
-            # 在转换前，先对Markdown内容进行预处理
-            markdown_content = preprocess_markdown_for_pandoc(raw_markdown_content)
-            
-            # 记录预处理后的内容长度
-            logger.info(f"预处理后内容长度: {len(markdown_content)} 字符。")
-            
-            # 最后一次更新结果（确保完整内容）
-            self.ocr_result_text.setMarkdown(markdown_content)
+            self.ocr_result_text.setPlainText(markdown_content)
             self.ocr_table.setItem(0, 1, QTableWidgetItem("识别成功"))
-            self.status_label.setText("OCR识别完成！")
+            
+            # 自动保存逻辑
+            try:
+                file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+                if not file_path_data:
+                    raise Exception("无法获取原始文件路径。")
 
-            # 自动保存为同名的MD文件和DOCX文件
-            file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
-            if file_path_data:
-                base_name, _ = os.path.splitext(file_path_data)
+                base_name_with_ext = os.path.basename(file_path_data)
+                base_name, _ = os.path.splitext(base_name_with_ext)
+                output_dir = os.path.dirname(file_path_data)
                 
-                # 生成最终的MD文件路径
-                md_file_path = base_name + ".md"
-                try:
-                    if not markdown_content.strip():
-                        logger.warning("OCR结果为空，将保存空的MD文件。")
-                        CustomMessageBox.warning(self, "保存警告", "OCR结果为空，将保存空的MD文件。")
-                    
-                    logger.info(f"准备写入最终文件: {md_file_path}，内容长度: {len(markdown_content)} 字符。")
-                    
-                    with open(md_file_path, 'w', encoding='utf-8') as f:
-                        f.write(markdown_content)
-                    
-                    # 验证最终文件
-                    final_size = os.path.getsize(md_file_path)
-                    logger.info(f"最终文件写入完成: {md_file_path}，实际大小: {final_size} 字节。")
-                    
-                    if final_size < len(markdown_content.encode('utf-8')) * 0.9: # 允许一些编码差异
-                         logger.error(f"严重警告：最终文件大小 ({final_size}) 远小于预期内容大小 ({len(markdown_content.encode('utf-8'))})！可能发生截断。")
+                # 保存 Markdown 文件
+                md_filename = f"{base_name}[ocr].md"
+                md_save_path = os.path.join(output_dir, md_filename)
+                with open(md_save_path, 'w', encoding='utf-8') as f:
+                    f.write(markdown_content)
+                logger.info(f"OCR结果已自动保存到: {md_save_path}")
 
-                except Exception as e:
-                    error_msg = f"无法自动保存最终MD文件: {e}"
-                    logger.error(error_msg, exc_info=True)
-                    CustomMessageBox.warning(self, "保存失败", error_msg)
-
-                # 生成同名的DOCX文件路径
-                docx_file_path = base_name + ".docx"
-                # 使用 Pandoc 进行转换
+                # 如果安装了 Pandoc，则保存 Word 文件
+                docx_save_path = None
                 if self.pandoc_installed:
-                    docx_result = convert_markdown_to_docx_with_pandoc(markdown_content, docx_file_path)
-                    if docx_result.get("success"):
-                        CustomMessageBox.information(self, "保存成功", f"OCR结果已自动保存到:\n{md_file_path}\n{docx_file_path}")
+                    docx_filename = f"{base_name}[ocr].docx"
+                    docx_save_path = os.path.join(output_dir, docx_filename)
+                    processed_content = preprocess_markdown_for_pandoc(markdown_content)
+                    conversion_result = convert_markdown_to_docx_with_pandoc(processed_content, docx_save_path)
+                    if conversion_result["success"]:
+                        logger.info(f"OCR结果已自动转换为 DOCX: {docx_save_path}")
                     else:
-                        # 如果 Pandoc 转换失败，显示详细错误信息
-                        error_message = docx_result.get("message", "未知错误")
-                        CustomMessageBox.warning(self, "DOCX 保存失败", f"无法将Markdown转换为DOCX: {error_message}")
+                        logger.error(f"自动转换为 DOCX 失败: {conversion_result['message']}")
+                        CustomMessageBox.warning(self, "Word 转换失败", f"无法将Markdown转换为Word文档。\n\nPandoc错误: {conversion_result['message']}")
+                        docx_save_path = None
                 else:
-                    CustomMessageBox.information(self, "部分成功", f"OCR结果已保存为Markdown文件:\n{md_file_path}\n\n(DOCX转换跳过，因为未安装Pandoc)")
+                    logger.warning("未检测到 Pandoc，跳过 DOCX 转换。")
+                
+                # 更新 UI 消息
+                if docx_save_path:
+                    save_message = f"结果已自动保存到：\n{md_save_path}\n{docx_save_path}"
+                    self.status_label.setText("OCR成功！结果已自动保存为 MD 和 DOCX。")
+                else:
+                    save_message = f"结果已自动保存到：\n{md_save_path}"
+                    self.status_label.setText("OCR成功！结果已自动保存为 MD。")
+                
+                CustomMessageBox.information(self, "识别成功", save_message)
+
+            except Exception as e:
+                error_msg = f"自动保存OCR结果时出错: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                self.status_label.setText("OCR识别完成，但自动保存失败。")
+                CustomMessageBox.warning(self, "自动保存失败", f"OCR识别已完成，但自动保存文件时遇到错误。\n您仍然可以手动保存结果。\n\n错误详情: {error_msg}")
+        
         else:
             error_message = result.get("message", "未知错误")
             self.ocr_table.setItem(0, 1, QTableWidgetItem("识别失败"))
@@ -1875,7 +1790,7 @@ class MainWindow(QMainWindow):
         from .ocr_config_dialog import OcrConfigDialog
 
         # 创建并显示对话框
-        dialog = OcrConfigDialog(self, self.env_path)
+        dialog = OcrConfigDialog(self)
         dialog.exec()  # 使用 exec() 以模态方式运行对话框
 
 
@@ -1920,8 +1835,6 @@ class AddBookmarkWorker(QThread):
                 self.file_finished.emit(original_index, result)
             except ValueError:
                 # 如果找不到文件，可以记录一个错误或忽略
-                # 如果找不到文件，可以记录一个错误或忽略
-                # print(f"Warning: Could not find index for file {original_file_path}")
                 pass
 
 

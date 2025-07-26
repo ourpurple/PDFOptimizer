@@ -122,7 +122,8 @@ def convert_markdown_to_docx_with_pandoc(markdown_content, docx_path):
     try:
         # 1. 创建一个临时 Markdown 文件
         # 在 docx 文件旁边创建临时文件，以确保权限一致
-        temp_md_path = os.path.splitext(docx_path) + "_temp.md"
+        base_name, _ = os.path.splitext(docx_path)
+        temp_md_path = base_name + "_temp.md"
         with open(temp_md_path, 'w', encoding='utf-8') as f:
             f.write(markdown_content)
 
