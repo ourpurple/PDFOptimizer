@@ -1,275 +1,132 @@
+# PDF Optimizer
 
-# PDF Optimizer - A Powerful PDF Optimization Tool
+一个功能强大的PDF处理工具，支持PDF压缩、合并、分割、图像转换、文本转曲线转换和书签管理等功能。
 
-A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, and bookmark management.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 
-[中文说明](https://github.com/ourpurple/PDFOptimizer/blob/main/readme_cn.md)
+## 功能特性
 
-## Key Features
+PDF Optimizer 提供了丰富的PDF处理功能：
 
-- 📦 **PDF File Compression and Optimization**
-  - Supports three quality presets: Low Quality (Maximum Compression), Medium Quality (Recommended), High Quality (Light Optimization)
-  - Supports both `pikepdf` and `Ghostscript` optimization engines
+1. **PDF优化** - 支持三种优化级别（低、中、高），可选择Pikepdf或Ghostscript引擎
+2. **PDF合并** - 支持合并多个PDF文件，可通过拖拽调整文件顺序
+3. **PDF分割** - 将多页PDF文件按页分割成多个独立的PDF文件
+4. **PDF转图片** - 将PDF的每一页转换为JPG或PNG格式，支持自定义分辨率(DPI)
+5. **PDF转曲** - 使用Ghostscript将PDF中的字体轮廓化，保证跨设备显示效果一致
+6. **PDF书签** - 支持为PDF文件添加书签，支持批量添加和配置导入导出
+7. **PDF OCR** - 使用AI模型进行OCR识别，支持OpenAI兼容API和Mistral API
 
-- 🔄 **PDF File Merging**
-  - Supports merging multiple PDF files
-  - Supports drag-and-drop sorting to determine the merge order
-  - Supports both `pikepdf` and `Ghostscript` merging engines
+## 技术栈
 
-- ✂️ **PDF Splitting**
-  - Splits a multi-page PDF into individual pages
-  - Uses `PyMuPDF` for fast and efficient splitting
+- **Python 3.10+**
+- **PySide6** - 用于构建图形用户界面
+- **Pikepdf** - 用于PDF处理
+- **PyMuPDF** - 用于PDF和图像处理
+- **Ghostscript** - 用于PDF优化和转曲功能（可选）
+- **Pandoc** - 用于OCR结果转换为DOCX文件（可选）
 
-- 🖼️ **PDF to Image Conversion**
-  - Converts each page of a PDF into an image
-  - Supports custom DPI and image formats (PNG, JPG)
-  - Uses `PyMuPDF` for high-quality conversion
+## 安装说明
 
-- ✏️ **PDF Text to Curves**
-  - Uses Ghostscript to convert text into curves
-  - Ensures font display consistency
+### 系统要求
 
-- 📑 **PDF Bookmark Management**
-  - Add bookmarks to PDF files
-  - Support batch bookmark addition
-  - Support using the same bookmark configuration for multiple files
-  - Support importing and exporting bookmark configurations
-  - Support bookmark editing and preview
+- Python 3.10 或更高版本
+- Ghostscript（用于转曲和GS引擎优化功能，可选）
+- Pandoc（用于OCR结果转换为DOCX文件，可选）
 
-- 🧠 **PDF Intelligent Recognition (OCR)**
- - Convert PDF pages to images and call compatible OpenAI-format large language models (such as GPT-4o) for content recognition.
- - Convert recognition results into structured Markdown text.
- - Support custom API addresses, model names, and prompts.
- - Securely save API configurations without repeated input.
+### 安装步骤
 
-- 🎨 **User-Friendly Interface**
-  - Clean and intuitive user interface with tabbed navigation
-  - Supports file drag-and-drop for all functions
-  - Real-time display of processing progress
-  - Detailed feedback on processing results
-  
-  ## Software Architecture
+1. 克隆项目仓库：
+   ```bash
+   git clone https://github.com/ourpurple/PDFOptimizer.git
+   cd PDFOptimizer
+   ```
 
-```mermaid
-graph TD
-   subgraph User Interface (UI Layer - PySide6)
-       A[main_window.py] -- Manages UI and signals --> B{User Actions};
-       B -- Select Files, Click Buttons, etc. --> A;
-   end
+2. 安装依赖：
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-   subgraph Application Control (Control Layer)
-       C[main_window.py] -- Initiates workers --> D{Workers (QThread)};
-       A -- Signals to --> C;
-   end
+### 运行应用
 
-   subgraph Core Logic (Backend)
-       direction LR
-       D -- Calls backend functions --> E[core/optimizer.py];
-       D -- Calls backend functions --> F[core/merger.py];
-       D -- Calls backend functions --> G[core/division.py];
-       D -- Calls backend functions --> H[core/pdf2img.py];
-       D -- Calls backend functions --> I[core/add_bookmark.py];
-       D -- Calls backend functions --> J[core/ocr.py];
-       J -- Uses utility --> K[core/utils.py];
-       J -- Calls --> L[core/converter.py];
-       L -- Uses utility --> K;
-   end
-
-   subgraph External Dependencies (Tools & Services)
-       direction LR
-       E -- Uses library --> M[Pikepdf];
-       F -- Uses library --> M;
-       G -- Uses library --> N[PyMuPDF];
-       H -- Uses library --> N;
-       J -- Calls API --> O[LLM API (e.g., GPT-4o)];
-       L -- Calls executable --> P[Pandoc];
-       E -- Calls executable --> Q[Ghostscript];
-       F -- Calls executable --> Q;
-   end
-
-   C -- Updates UI based on results --> A;
-```
-
-  ## Screenshot
-  
-  ![Screenshot](http://pic.mathe.cn/2025/07/17/79d439f3b098b.png)
-  
-  ## System Requirements
-
-- Windows Operating System
-- Python 3.7+
-- Ghostscript (Optional, but recommended for full functionality)
-- Pandoc (Required for exporting OCR results to .docx format)
-
-## Installation
-
-1. Clone or download this project
 ```bash
-git clone https://github.com/yourusername/PDFOptimizer.git
+python main.py
 ```
 
-2. Install uv (Universal Virtualenv)
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+## 使用方法
+
+1. **PDF优化**：
+   - 选择要优化的PDF文件
+   - 选择优化质量（低质量、中等质量、高质量）
+   - 选择优化引擎（Pikepdf或Ghostscript）
+   - 点击"开始优化"按钮
+
+2. **PDF合并**：
+   - 选择要合并的PDF文件
+   - 通过拖拽调整文件顺序
+   - 选择合并引擎（Pikepdf或Ghostscript）
+   - 点击"开始合并"按钮
+
+3. **PDF分割**：
+   - 选择要分割的PDF文件
+   - 选择分割后文件的保存文件夹
+   - 点击"开始分割"按钮
+
+4. **PDF转图片**：
+   - 选择要转换的PDF文件
+   - 选择图片格式（JPG或PNG）
+   - 设置分辨率（DPI）
+   - 选择图片保存文件夹
+   - 点击"开始转换"按钮
+
+5. **PDF转曲**：
+   - 选择要转曲的PDF文件
+   - 点击"开始转曲"按钮（需要安装Ghostscript）
+
+6. **PDF书签**：
+   - 选择要添加书签的PDF文件
+   - 编辑书签或导入书签配置
+   - 点击"开始添加书签"按钮
+
+7. **PDF OCR**：
+   - 选择要进行OCR识别的PDF文件
+   - 配置OCR参数（API提供商、API Key、模型名称等）
+   - 点击"开始识别"按钮
+
+## 项目结构
+
+```
+PDFOptimizer/
+├── core/                 # 核心功能模块
+│   ├── optimizer.py      # PDF优化功能
+│   ├── merger.py         # PDF合并功能
+│   ├── division.py       # PDF分割功能
+│   ├── pdf2img.py        # PDF转图片功能
+│   ├── converter.py      # PDF转曲功能
+│   ├── add_bookmark.py   # PDF书签功能
+│   ├── ocr.py            # PDF OCR功能
+│   ├── utils.py          # 工具函数
+│   └── version.py        # 版本信息
+├── ui/                   # 用户界面文件
+│   ├── main_window.py    # 主窗口界面
+│   ├── custom_dialog.py  # 自定义对话框
+│   ├── ocr_config_dialog.py  # OCR配置对话框
+│   └── style.qss         # 样式表
+├── main.py               # 程序入口
+├── requirements.txt      # 依赖列表
+└── README.md             # 项目说明文件
 ```
 
-3. Create virtualenv and install dependencies
-```bash
-uv venv
-uv pip install -r requirements.txt
-```
+## 更新日志
 
-4. (Optional) Install development dependencies
-```bash
-uv pip install -r requirements-dev.txt
-```
+查看 [CHANGELOG.md](CHANGELOG.md) 了解详细的版本更新信息。
 
-4. Install Ghostscript (Optional)
-- Download and install from the [Ghostscript official website](https://www.ghostscript.com/releases/gsdnld.html)
-- Make sure Ghostscript is added to the system's PATH environment variable
+## 许可证
 
-5. Install Pandoc (Required for OCR to DOCX)
-- Download and install from the [Pandoc official website](https://pandoc.org/installing.html)
-- Make sure Pandoc is added to the system's PATH environment variable
+本项目采用MIT许可证，详情请见 [LICENSE](LICENSE) 文件。
 
-## Usage
+## 作者
 
-1. Run the program
-```bash
-uv run main.py
-```
+WanderInDoor - 76757488@qq.com
 
-2. PDF File Optimization
-   - Click "Select Files" or drag and drop PDF files into the program window
-   - Select the desired quality preset
-   - Select the optimization engine (pikepdf or Ghostscript)
-   - Click "Start Optimization"
-
-3. PDF File Merging
-   - Add multiple PDF files
-   - Adjust the file order by dragging and dropping
-   - Click "Start Merging"
-
-4. PDF Splitting
-   - Switch to the "PDF Splitting" tab
-   - Add the PDF file to be split
-   - Click "Start Splitting" and select a folder to save the output files
-
-5. PDF to Image Conversion
-   - Switch to the "PDF to Image" tab
-   - Add the PDF files to be converted
-   - Select the desired image format and DPI
-   - Click "Start Conversion" and select a folder to save the output images
-
-6. PDF Text to Curves
-   - Switch to the "PDF Text to Curves" tab
-   - Add the PDF files to be processed
-   - Click "Start Conversion to Curves"
-   - Wait for the process to complete
-
-7. PDF Intelligent Recognition (OCR)
-   - Switch to the "PDF OCR" tab.
-   - For first-time use, enter your API Base URL and API Key, then click the "Fetch Model List" button to get the available models. Select the appropriate model and click "Save Configuration". This configuration will be securely saved locally, so you won't need to enter it again in the future.
-   - Note: The "Fetch Model List" button will only become enabled after both the API Base URL and API Key are filled in.
-   - Click the "Select PDF File" button and choose a PDF document you want to recognize.
-   - Click the "Start Recognition" button. The program will convert the PDF pages to images and submit them to the AI model for processing.
-   - After recognition is complete, the results will be displayed in Markdown format in the text box and automatically saved as a .md and .docx file with the same name.
-   - **Note**: Exporting to .docx format requires **Pandoc** to be installed and accessible in the system's PATH. If Pandoc is not detected, the application will prompt you and only generate a .md file.
-
-## Notes
-
-- It is recommended to back up important files before processing.
-- Processing large files may take a long time, please be patient.
-- The Ghostscript engine may provide better compression results in some cases, but it may be slower than pikepdf.
-- The text-to-curves feature depends on Ghostscript; it cannot be used if Ghostscript is not installed.
-
-## Implementation Details
-
-- **PDF Optimization (pikepdf Engine)**
-  - Uses `pikepdf.open(input_path)` to open the source file, and sets `compress_streams`, `object_stream_mode`, and `linearize` parameters based on three quality presets (Low/Medium/High).
-  - Calls `pdf.save(output_path, ...)` to write the optimized PDF.
-
-- **PDF Optimization (Ghostscript Engine)**
-  - Uses `_get_gs_executable` to find the Ghostscript executable, with the following priority: `GHOSTSCRIPT_EXECUTABLE` environment variable > PyInstaller bundled path > `shutil.which` in system PATH.
-  - Calls `subprocess.Popen` to execute the Ghostscript command line:
-    ```bash
-    gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/screen|/ebook|/prepress -dNOPAUSE -dBATCH -dQUIET -sOutputFile=output.pdf input.pdf
-    ```
-  - Determines the optimization result based on the return code and calculates the file sizes before and after compression using `os.path.getsize`.
-
-- **PDF Merging (pikepdf Engine)**
-  - Uses `pikepdf.Pdf.new()` to create an empty PDF, iterates through the input file list, appends all pages to the target PDF using `pdf.pages.extend(src.pages)`, and finally saves with `pdf.save(output_path)`.
-
-- **PDF Merging (Ghostscript Engine)**
-  - Calls Ghostscript to execute the command line:
-    ```bash
-    gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile=merged.pdf file1.pdf file2.pdf ...
-    ```
-  - Determines the merge result based on the return code and file size.
-
-- **PDF Text to Curves**
-  - Based on the Ghostscript command line, adds the `-dNoOutputFonts` parameter to convert all text to curves, ensuring cross-platform font consistency:
-    ```bash
-    gs -sDEVICE=pdfwrite -o curves.pdf -dNOPAUSE -dBATCH -dQUIET -dNoOutputFonts input.pdf
-    ```
-
-- **PDF Splitting (PyMuPDF Engine)**
-  - Uses `fitz.open()` to open the source PDF, iterates through each page, and creates a new single-page PDF for each page using `new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)`.
-
-- **PDF to Image Conversion (PyMuPDF Engine)**
-  - Uses `fitz.open()` to open the PDF, iterates through each page, and converts each page to a pixmap using `page.get_pixmap(dpi=dpi)`.
-  - Saves the pixmap to the specified image format (PNG/JPG).
-
-- **Graphical User Interface (PySide6)**
-  - Uses `QMainWindow` and `QTabWidget` to build the main window and five functional tabs (Optimize, Merge, Split, To Image, To Curves).
-  - Employs a custom `SortableTableWidget` that overrides drag-and-drop events (`dragEnterEvent`, `dragMoveEvent`, `dropEvent`) and the context menu (`contextMenuEvent`) to support drag-and-drop sorting, deletion, moving up/down, and opening the file location.
-  - Implements multithreading with `QThread` (encapsulated in `BaseWorker` and its subclasses like `OptimizeWorker`, `MergeWorker`, etc.) and uses `Signal` to update the progress bar and table status in real-time without blocking the UI.
-  - Resource paths are handled by `resource_path` to be compatible with both the development environment and the PyInstaller `_MEIPASS` directory.
-
-- **PDF Intelligent Recognition (OCR)**
- - **PDF to Images**: Reuse the `core.pdf2img` module to convert PDF pages to 200 DPI PNG images and save them to a temporary directory.
- - **Calling AI Models**: Add a new `core.ocr` module containing the `process_images_with_model` function. This function is responsible for:
-   - Encoding each image to Base64.
-   - Building a JSON payload in the OpenAI Vision API format, sending the image and user-defined prompts to the specified API endpoint.
-   - Using the `httpx` library to send POST requests and process the JSON data returned by the API.
- - **Markdown to DOCX Conversion**:
-   - Utilizes the `core.utils.convert_markdown_to_docx_with_pandoc` function.
-   - This function calls the `pandoc` command-line tool via `subprocess.Popen` to convert the Markdown content generated by the AI into a .docx file.
-   - It reliably handles complex structures, especially LaTeX mathematical formulas.
- - **Configuration Management**:
-   - Use the `python-dotenv` library to manage API configurations.
-   - Securely load and save `OCR_API_BASE_URL`, `OCR_API_KEY`, and other information in the `.pdfoptimizer/.env` file in the user's home directory.
- - **UI Integration**:
-   - Add a new "PDF OCR" tab in `ui.main_window`.
-   - Before starting the task, `check_pandoc` is called to verify its installation and provides user guidance if it's missing.
-   - Create a new `OcrWorker` thread to execute PDF conversion and API calls in the background, preventing UI blocking.
-   - Update the interface status and progress through the signal and slot mechanism (`Signal`, `Slot`).
-
-- **Packaging as an Executable (PyInstaller)**
-  - Install PyInstaller:
-    ```bash
-    pip install pyinstaller
-    ```
-  - Run in the project root directory:
-    ```bash
-     venv\Scripts\pyinstaller --name PDFOptimizer --noconfirm --onefile --windowed --icon="ui/app.ico" --add-data "ui/style.qss;ui" --add-data "ui/app.ico;ui" main.py
-    ```
-  - To ensure Ghostscript is available after packaging, you can copy its `bin` and `lib` folders to the project root and add them via `--add-data` during packaging.
-  - The packaged result is located at `dist/PDFOptimizer.exe`, which is a single-file executable containing all dependencies.
-
-## Technology Stack
-
-- Python 3
-- PySide6 (Qt for Python)
-- pikepdf
-- PyMuPDF
-- Ghostscript
-- Pandoc
-
-## Feedback and Suggestions
-
-If you encounter any problems during use, or have any suggestions for features, please feel free to open an Issue or Pull Request.
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+项目地址: [https://github.com/ourpurple/PDFOptimizer](https://github.com/ourpurple/PDFOptimizer)

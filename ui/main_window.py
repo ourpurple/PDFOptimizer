@@ -133,7 +133,7 @@ class SortableTableWidget(QTableWidget):
             return
 
         # 获取选中行的第一列（文件名列）
-        row = selected_items.row()
+        row = selected_items[0].row()
         file_path_item = self.item(row, 0)
         if file_path_item:
             file_path = file_path_item.data(Qt.ItemDataRole.UserRole)
@@ -1438,7 +1438,7 @@ class MainWindow(QMainWindow):
             if not selected:
                 CustomMessageBox.warning(self, "提示", "请先选中要编辑书签的文件！")
                 return
-            row = selected.row()
+            row = selected[0].row()
             file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
             if not hasattr(self, '_file_bookmarks'):
                 self._file_bookmarks = {}
@@ -1561,7 +1561,7 @@ class MainWindow(QMainWindow):
             if not selected:
                 CustomMessageBox.warning(self, "提示", "请先选中要添加书签的文件！")
                 return
-            row = selected.row()
+            row = selected[0].row()
             file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
             if not hasattr(self, '_file_bookmarks'):
                 self._file_bookmarks = {}
