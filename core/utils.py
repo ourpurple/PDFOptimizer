@@ -10,20 +10,18 @@ import re
 LOG_FILE = "app_log.log"
 logging.basicConfig(
     level=logging.ERROR,
-    format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
+    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
     filename=LOG_FILE,
-    filemode="a",
-    encoding="utf-8",
+    filemode='a',
+    encoding='utf-8'
 )
 logger = logging.getLogger(__name__)
-
 
 def handle_exception(func):
     """
     装饰器，用于捕获函数执行中的异常并记录日志。
     适用于返回字典结果的函数。
     """
-
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
@@ -32,9 +30,7 @@ def handle_exception(func):
             error_message = f"函数 '{func.__name__}' 执行异常: {str(e)}"
             logger.error(error_message, exc_info=True)
             return {"success": False, "message": error_message}
-
     return wrapper
-
 
 def get_subprocess_startup_info():
     """
@@ -48,10 +44,8 @@ def get_subprocess_startup_info():
         startupinfo.wShowWindow = subprocess.SW_HIDE
     return startupinfo
 
-
 # 缓存Ghostscript可执行文件路径
 _GS_EXECUTABLE_PATH = None
-
 
 def _get_gs_executable():
     """
@@ -69,9 +63,9 @@ def _get_gs_executable():
         return gs_exe
 
     # 2. PyInstaller 运行的临时路径中查找
-    if hasattr(sys, "_MEIPASS"):
+    if hasattr(sys, '_MEIPASS'):
         # 对于 PyInstaller，gs 可能被打包在 _MEIPASS 目录
-        bundled_gs = os.path.join(sys._MEIPASS, "gs", "gswin64c.exe")  # 假设是64位
+        bundled_gs = os.path.join(sys._MEIPASS, "gs", "gswin64c.exe") # 假设是64位
         if os.path.exists(bundled_gs):
             _GS_EXECUTABLE_PATH = bundled_gs
             return bundled_gs
@@ -81,22 +75,19 @@ def _get_gs_executable():
     _GS_EXECUTABLE_PATH = found_gs
     return found_gs
 
-
 def is_ghostscript_installed():
     return _get_gs_executable() is not None
-
 
 def is_pandoc_installed():
     """检查系统中是否安装了 pandoc"""
     return shutil.which("pandoc") is not None
-
 
 def preprocess_markdown_for_pandoc(markdown_content: str) -> str:
     """
     预处理Markdown内容，以解决Pandoc转换的常见问题。
     此函数的唯一功能是将错误包裹在代码块（```）中的LaTeX数学公式（$$...$$）
     “解放”出来，使其能够被Pandoc正确识别。
-
+    
     :param markdown_content: 原始的Markdown字符串。
     :return: 处理后的Markdown字符串，仅包含公式修正。
     """
@@ -104,13 +95,13 @@ def preprocess_markdown_for_pandoc(markdown_content: str) -> str:
     # 它会捕获语言标识符（如latex, tex）以及公式本身
     # re.DOTALL 使得 . 可以匹配换行符
     formula_pattern = re.compile(r"```[a-zA-Z]*\s*(\${2}.*?\${2})\s*```", re.DOTALL)
-
+    
     # 使用一个函数来替换找到的匹配项
     def replacer(match):
         # 提取并返回捕获的公式内容（第一个捕获组）
         # .strip() 用于移除可能存在于公式前后的多余空白字符
         return match.group(1).strip()
-
+        
     # 执行替换并返回结果
     return formula_pattern.sub(replacer, markdown_content)
 
@@ -133,35 +124,32 @@ def convert_markdown_to_docx_with_pandoc(markdown_content, docx_path):
         # 在 docx 文件旁边创建临时文件，以确保权限一致
         base_name, _ = os.path.splitext(docx_path)
         temp_md_path = base_name + "_temp.md"
-        with open(temp_md_path, "w", encoding="utf-8") as f:
+        with open(temp_md_path, 'w', encoding='utf-8') as f:
             f.write(markdown_content)
 
         # 2. 调用 pandoc 读取临时文件进行转换
         cmd = [
             "pandoc",
-            "-f",
-            "markdown+tex_math_dollars",
-            "-t",
-            "docx",
-            "-o",
-            docx_path,
-            temp_md_path,  # 从文件读取
+            "-f", "markdown+tex_math_dollars",
+            "-t", "docx",
+            "-o", docx_path,
+            temp_md_path  # 从文件读取
         ]
-
+        
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            startupinfo=get_subprocess_startup_info(),
+            startupinfo=get_subprocess_startup_info()
         )
-
+        
         stdout, stderr = process.communicate()
 
         if process.returncode != 0:
             error_message = f"Pandoc 转换失败: {stderr.decode('utf-8', 'ignore')}"
             logger.error(error_message)
             return {"success": False, "message": error_message}
-
+            
         return {"success": True, "message": f"成功转换为: {docx_path}"}
 
     except FileNotFoundError:
