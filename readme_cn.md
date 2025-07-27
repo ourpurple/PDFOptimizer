@@ -1,8 +1,8 @@
 # PDF Optimizer - PDF文件优化工具
 
-[![版本](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/one-lazy-cat/PDF-Optimizer/releases)
+[![版本](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/ourpurple/PDFOptimizer/releases)
 
-一个功能强大的PDF工具集，支持PDF压缩、合并、分割、图片转换、文本转曲、书签管理和智能OCR识别等功能。
+一个功能强大的PDF工具集，支持PDF压缩、合并、分割、图片转换、文本转曲和书签管理等功能。
 
 ## 主要功能
 
@@ -47,23 +47,22 @@
   - 全功能支持文件拖拽
   - 实时显示处理进度
   - 详细的处理结果反馈
-
-## 界面截图
-
-![界面截图](http://pic.mathe.cn/2025/07/17/79d439f3b098b.png)
-
-## 系统要求
+  
+  ## 界面截图
+  
+  ![界面截图](http://pic.mathe.cn/2025/07/17/79d439f3b098b.png)
+  
+  ## 系统要求
 
 - Windows操作系统
-- Python 3.10+
+- Python 3.7+
 - Ghostscript (可选，但推荐安装以使用全部功能)
-- Pandoc (导出OCR结果为.docx格式所必需)
 
 ## 安装说明
 
 1. 克隆或下载本项目代码
 ```bash
-git clone https://github.com/one-lazy-cat/PDF-Optimizer.git
+git clone https://github.com/yourusername/PDFOptimizer.git
 ```
 
 2. 安装 uv (通用虚拟环境管理工具)
@@ -86,10 +85,6 @@ uv pip install -r requirements-dev.txt
 - 从[Ghostscript官网](https://www.ghostscript.com/releases/gsdnld.html)下载并安装
 - 确保Ghostscript已添加到系统环境变量PATH中
 
-6. 安装Pandoc（OCR导出.docx所必需）
-- 从[Pandoc官网](https://pandoc.org/installing.html)下载并安装
-- 确保Pandoc已添加到系统环境变量PATH中
-
 ## 使用方法
 
 1. 运行程序
@@ -98,42 +93,42 @@ uv run main.py
 ```
 
 2. PDF文件优化
-   - 点击"选择PDF文件"或直接拖拽PDF文件到程序窗口
+   - 点击"添加文件"或直接拖拽PDF文件到程序窗口
    - 选择期望的质量预设
    - 选择优化引擎（pikepdf或Ghostscript）
    - 点击"开始优化"
-
-3. PDF文件合并
-   - 添加多个PDF文件
-   - 通过拖拽调整文件顺序
-   - 点击"开始合并"
-
-4. PDF分割
-   - 切换到"PDF分割"标签页
-   - 添加需要分割的PDF文件
-   - 点击"开始分割"并选择保存输出文件的文件夹
-
-5. PDF转图片
-   - 切换到"PDF转图片"标签页
-   - 添加需要转换的PDF文件
-   - 选择期望的图片格式和DPI
-   - 点击"开始转换"并选择保存输出图片的文件夹
-
-6. PDF文本转曲
-   - 切换到"PDF转曲"标签页
-   - 添加需要处理的PDF文件
-   - 点击"开始转曲"
-   - 等待处理完成
-
-7. PDF智能识别 (OCR)
-   - 切换到"PDF OCR"标签页。
-   - 首次使用时，请填入您的API Base URL、API Key，然后点击"获取模型列表"按钮来获取可用的模型列表。选择合适的模型后，点击“保存配置”。此配置将安全地保存在本地，未来无需再次输入。
-   - 注意："获取模型列表"按钮只有在API Base URL和API Key都填写后才会变为可用状态。
-   - 点击“选择PDF文件”按钮，选择一个需要识别的PDF文档。
-   - 点击“开始识别”按钮，程序会将PDF逐页转换为图片并交由AI模型处理。
-   - 识别完成后，结果将以Markdown格式显示在文本框中，并自动保存为同名的`.md`和`.docx`文件。
-
-## 注意事项
+   
+   3. PDF文件合并
+      - 添加多个PDF文件
+      - 通过拖拽调整文件顺序
+      - 点击"开始合并"
+   
+   4. PDF分割
+      - 切换到"PDF分割"标签页
+      - 添加需要分割的PDF文件
+      - 点击"开始分割"并选择保存输出文件的文件夹
+   
+   5. PDF转图片
+      - 切换到"PDF转图片"标签页
+      - 添加需要转换的PDF文件
+      - 选择期望的图片格式和DPI
+      - 点击"开始转换"并选择保存输出图片的文件夹
+   
+   6. PDF文本转曲
+      - 切换到"PDF转曲"标签页
+      - 添加需要处理的PDF文件
+      - 点击"开始转曲"
+      - 等待处理完成
+  
+  7. PDF智能识别 (OCR)
+     - 切换到"PDF OCR"标签页。
+     - 首次使用时，请填入您的API Base URL、API Key，然后点击"获取模型列表"按钮来获取可用的模型列表。选择合适的模型后，点击“保存配置”。此配置将安全地保存在本地，未来无需再次输入。
+     - 注意："获取模型列表"按钮只有在API Base URL和API Key都填写后才会变为可用状态。
+     - 点击“选择PDF文件”按钮，选择一个需要识别的PDF文档。
+     - 点击“开始识别”按钮，程序会将PDF逐页转换为图片并交由AI模型处理。
+     - 识别完成后，结果将以Markdown格式显示在文本框中，并自动保存为同名的`.md`和`.docx`文件。
+  
+  ## 注意事项
 
 - 建议在处理重要文件前先进行备份
 - 对于大文件处理可能需要较长时间，请耐心等待。
@@ -141,31 +136,6 @@ uv run main.py
 - 转曲功能依赖于 Ghostscript，未安装则无法使用。
 
 ## 实现细节
-
-### v4.0.0 版本重大重构
-
-此版本是一次重大的内部重构，专注于提升代码质量、可维护性和性能，为未来的功能迭代奠定坚实的基础。大部分更改体现在代码结构上，而非直接的用户功能。
-
-- **架构重构**:
-    - **UI 解耦**: 将原先庞大的 `MainWindow` 彻底拆分，每个功能（优化、合并、OCR等）的 UI 和逻辑被封装到独立的 `QWidget` 子类中，大幅降低了代码的耦合度。
-    - **逻辑抽象**: 引入了 `BaseTabWidget` 基类，抽象了文件列表、控制按钮等通用 UI 组件和逻辑，简化了新功能标签页的开发。
-    - **线程统一**: 将原先多个针对特定任务的 `Worker` 线程（如 `OptimizeWorker`, `CurvesWorker`）重构为一个通用的 `ProcessingWorker`，该 Worker 可以接受任何函数作为处理任务，极大地减少了冗余的线程代码。
-
-- **代码质量**:
-    - 全面推行 `Flake8`, `Black`, `isort`, `mypy` 等静态分析和格式化工具，并对整个代码库进行了标准化处理。
-    - 将代码中大部分硬编码的字符串和配置项外化到 `constants.py` 模块中，增强了可维护性。
-
-- **依赖管理**:
-    - `pyproject.toml` 现在是项目依赖的唯一事实来源。
-    - `requirements.txt` 将与 `pyproject.toml` 保持同步，以确保环境的一致性。
-
-- **资源管理**:
-    - 全面审查了文件 I/O 和外部进程（如 Ghostscript, Pandoc）的调用，通过使用 `with` 语句和 `try...finally` 块，确保文件句柄和进程资源在操作完成或异常发生时都能被正确释放。
-
-- **UI 响应性**:
-    - 修复了在添加文件或导入/导出配置时可能发生的 UI 阻塞问题，确保所有耗时的 I/O 操作都在后台线程中执行。
-
-### 核心功能实现
 
 - **PDF 优化 (pikepdf 引擎)**  
   - 使用 `pikepdf.open(input_path)` 打开源文件，基于三种质量预设（低质量/中等质量/高质量）设置 `compress_streams`、`object_stream_mode`、`linearize` 参数。  
@@ -228,7 +198,6 @@ uv run main.py
   - 通过 `subprocess.Popen` 将预处理和修复后的Markdown内容作为标准输入传递给Pandoc。
   - 明确启用 `+tex_math_dollars` 扩展，以确保行内和块级LaTeX公式都能被正确解析。
   - 命令示例: `pandoc -f markdown+tex_math_dollars -t docx -o output.docx`
-  
 - **打包为可执行文件 (PyInstaller)**
   - 安装 PyInstaller：  
     ```bash
@@ -240,7 +209,6 @@ uv run main.py
     ```
   - 为确保 `Ghostscript` 在打包后可用，可以将其安装目录下的 `bin` 和 `lib` 文件夹复制到项目根目录，并在打包时通过 `--add-data` 添加。
   - 打包结果位于 `dist/PDFOptimizer.exe`，是一个包含所有依赖的单文件可执行程序。
-
 ## 技术栈
 
 - Python 3

@@ -1,10 +1,8 @@
 # PDF Optimizer - A Powerful PDF Optimization Tool
 
-[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/one-lazy-cat/PDF-Optimizer/releases)
+A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, and bookmark management.
 
-A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, bookmark management, and intelligent OCR.
-
-[中文说明](README_CN.md)
+[中文说明](https://github.com/ourpurple/PDFOptimizer/blob/main/readme_cn.md)
 
 ## Key Features
 
@@ -42,22 +40,62 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
  - Convert recognition results into structured Markdown text.
  - Support custom API addresses, model names, and prompts.
  - Securely save API configurations without repeated input.
- - **Auto-generate DOCX**: Leverage [Pandoc](https://pandoc.org/) to automatically convert the recognized Markdown content (including LaTeX formulas) into high-quality `.docx` files.
 
 - 🎨 **User-Friendly Interface**
   - Clean and intuitive user interface with tabbed navigation
   - Supports file drag-and-drop for all functions
   - Real-time display of processing progress
   - Detailed feedback on processing results
+  
+  ## Software Architecture
 
-## Screenshot
+```mermaid
+graph TD
+    subgraph "User Interface (UI Layer - PySide6)"
+        A[main_window.py] -- Aggregates --> T1[OptimizeTab];
+        A -- Aggregates --> T2[MergeTab];
+        A -- Aggregates --> T3[SplitTab];
+        A -- Aggregates --> T4[... other tabs];
+        T1 -- Inherits from --> BaseTabWidget;
+        T2 -- Inherits from --> BaseTabWidget;
+        T3 -- Inherits from --> BaseTabWidget;
+        BaseTabWidget -- Handles User Input --> C{User Actions};
+    end
 
-![Screenshot](http://pic.mathe.cn/2025/07/17/79d439f3b098b.png)
+    subgraph "Application Control (Control Layer)"
+        direction LR
+        BaseTabWidget -- Initiates --> W[ProcessingWorker (QThread)];
+        W -- Is given --> F_TASK(Target Function e.g., optimize_pdf);
+    end
 
-## System Requirements
+    subgraph "Core Logic (Backend)"
+        direction LR
+        F_TASK -- Calls --> CORE_OPT[core/optimizer.py];
+        F_TASK -- Calls --> CORE_MERGE[core/merger.py];
+        F_TASK -- Calls --> CORE_OCR[core/ocr.py];
+        F_TASK -- Calls --> CORE_ETC[... other core modules];
+    end
+
+    subgraph "External Dependencies (Tools & Services)"
+        direction LR
+        CORE_OPT -- Uses --> Pikepdf;
+        CORE_OPT -- Uses --> Ghostscript;
+        CORE_OCR -- Calls API --> LLM_API[LLM API (e.g., GPT-4o)];
+        CORE_OCR -- Uses --> Pandoc;
+    end
+
+    W -- Emits signals --> BaseTabWidget;
+    BaseTabWidget -- Updates UI based on signals --> A;
+```
+
+  ## Screenshot
+  
+  ![Screenshot](http://pic.mathe.cn/2025/07/17/79d439f3b098b.png)
+  
+  ## System Requirements
 
 - Windows Operating System
-- Python 3.10+
+- Python 3.7+
 - Ghostscript (Optional, but recommended for full functionality)
 - Pandoc (Required for exporting OCR results to .docx format)
 
@@ -65,7 +103,7 @@ A powerful PDF utility that supports PDF compression, merging, splitting, image 
 
 1. Clone or download this project
 ```bash
-git clone https://github.com/one-lazy-cat/PDF-Optimizer.git
+git clone https://github.com/yourusername/PDFOptimizer.git
 ```
 
 2. Install uv (Universal Virtualenv)
@@ -84,11 +122,11 @@ uv pip install -r requirements.txt
 uv pip install -r requirements-dev.txt
 ```
 
-5. Install Ghostscript (Optional)
+4. Install Ghostscript (Optional)
 - Download and install from the [Ghostscript official website](https://www.ghostscript.com/releases/gsdnld.html)
 - Make sure Ghostscript is added to the system's PATH environment variable
 
-6. Install Pandoc (Required for OCR to DOCX)
+5. Install Pandoc (Required for OCR to DOCX)
 - Download and install from the [Pandoc official website](https://pandoc.org/installing.html)
 - Make sure Pandoc is added to the system's PATH environment variable
 
@@ -144,31 +182,6 @@ uv run main.py
 - The text-to-curves feature depends on Ghostscript; it cannot be used if Ghostscript is not installed.
 
 ## Implementation Details
-
-### Major Refactoring in v4.0.0
-
-This version represents a significant internal refactoring focused on improving code quality, maintainability, and performance, laying a solid foundation for future feature iterations. Most changes are reflected in the code structure rather than direct user-facing features.
-
-- **Architecture Refactoring**:
-    - **UI Decoupling**: The previously monolithic `MainWindow` has been completely dismantled. The UI and logic for each function (optimization, merging, OCR, etc.) are now encapsulated in independent `QWidget` subclasses, dramatically reducing code coupling.
-    - **Logic Abstraction**: Introduced a `BaseTabWidget` base class to abstract common UI components and logic such as file lists, control buttons, etc., simplifying the development of new functional tabs.
-    - **Thread Unification**: Multiple task-specific `Worker` threads (like `OptimizeWorker`, `CurvesWorker`) have been refactored into a single, generic `ProcessingWorker`. This worker can accept any function as a processing task, greatly reducing redundant threading code.
-
-- **Code Quality**:
-    - Fully adopted `Flake8`, `Black`, `isort`, `mypy` and other static analysis and formatting tools, and standardized the entire codebase.
-    - Externalized most hardcoded strings and configuration items into the `constants.py` module to enhance maintainability.
-
-- **Dependency Management**:
-    - `pyproject.toml` is now the single source of truth for project dependencies.
-    - `requirements.txt` will be kept in sync with `pyproject.toml` to ensure environment consistency.
-
-- **Resource Management**:
-    - Conducted a thorough review of file I/O and external process calls (such as Ghostscript, Pandoc), using `with` statements and `try...finally` blocks to ensure file handles and process resources are correctly released upon completion or in case of exceptions.
-
-- **UI Responsiveness**:
-    - Fixed potential UI blocking issues when adding files or importing/exporting configurations, ensuring all time-consuming I/O operations are performed in background threads.
-
-### Core Function Implementations
 
 - **PDF Optimization (pikepdf Engine)**
   - Uses `pikepdf.open(input_path)` to open the source file, and sets `compress_streams`, `object_stream_mode`, and `linearize` parameters based on three quality presets (Low/Medium/High).
