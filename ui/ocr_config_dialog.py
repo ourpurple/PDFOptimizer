@@ -3,7 +3,7 @@ import os
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QTextEdit,
-    QPushButton, QComboBox, QMessageBox, QApplication, QWidget
+    QPushButton, QComboBox, QMessageBox, QApplication, QWidget, QSlider
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIcon
@@ -100,6 +100,27 @@ class OcrConfigDialog(QDialog):
         self.model_name_combo = QComboBox()
         self.model_name_combo.setEditable(True)  # 允许用户手动输入模型名称
         
+        # 添加温度滑块控件
+        self.temperature_slider = QSlider(Qt.Horizontal)
+        self.temperature_slider.setMinimum(0)
+        self.temperature_slider.setMaximum(20)  # 0-2.0，步长0.1
+        self.temperature_slider.setValue(10)  # 默认值1.0
+        self.temperature_slider.setTickPosition(QSlider.TicksBelow)
+        self.temperature_slider.setTickInterval(5)
+        
+        # 添加温度值显示标签
+        self.temperature_label = QLineEdit()
+        self.temperature_label.setReadOnly(True)
+        self.temperature_label.setText("1.0")
+        self.temperature_label.setFixedWidth(50)
+        
+        # 创建温度控件容器
+        self.temperature_widget = QWidget()
+        temperature_layout = QHBoxLayout(self.temperature_widget)
+        temperature_layout.setContentsMargins(0, 0, 0, 0)
+        temperature_layout.addWidget(self.temperature_slider)
+        temperature_layout.addWidget(self.temperature_label)
+        
         self.prompt_input = QTextEdit()
         self.prompt_input.setFixedHeight(100)  # 设置提示词输入框的高度
         
@@ -115,6 +136,7 @@ class OcrConfigDialog(QDialog):
 
         self.form_layout.addRow("API Key:", self.api_key_input)
         self.form_layout.addRow("模型名称:", self.model_name_combo)
+        self.form_layout.addRow("温度 (Temperature):", self.temperature_widget)
         self.form_layout.addRow("提示词 (Prompt):", self.prompt_input)
         
         layout.addLayout(self.form_layout)
@@ -149,6 +171,9 @@ class OcrConfigDialog(QDialog):
         buttons_layout.addWidget(self.cancel_button)
         layout.addLayout(buttons_layout)
         
+        # 连接温度滑块信号
+        self.temperature_slider.valueChanged.connect(self._on_temperature_changed)
+        
     def _load_config(self):
         """从 .env 文件加载配置"""
         if os.path.exists(os.path.dirname(self.env_path)):
@@ -167,6 +192,19 @@ class OcrConfigDialog(QDialog):
         # 为OpenAI兼容模式提供一个更通用的默认值，并从旧变量迁移
         self.model_names["OpenAI-Compatible"] = os.getenv("OPENAI_MODEL_NAME", os.getenv("OCR_MODEL_NAME", "gpt-4o"))
         self.prompt_input.setPlainText(os.getenv("OCR_PROMPT", "这是一个PDF页面。请准确识别所有内容，并将其转换为结构良好的Markdown格式。"))
+        # 加载温度设置
+        temperature_str = os.getenv("OCR_TEMPERATURE", "1.0")
+        try:
+            temperature = float(temperature_str)
+            if 0.0 <= temperature <= 2.0:
+                # 将0.0-2.0的浮点数转换为0-20的整数
+                self.temperature_slider.setValue(int(temperature * 10))
+            else:
+                # 如果超出范围，使用默认值
+                self.temperature_slider.setValue(10)
+        except ValueError:
+            # 如果不是有效数字，使用默认值
+            self.temperature_slider.setValue(10)
         
         # 加载保存的模型列表
         if os.path.exists(self.models_path):
@@ -210,12 +248,15 @@ class OcrConfigDialog(QDialog):
     def save_config(self):
         """保存配置到 .env 文件"""
         try:
+            # 获取温度值
+            temperature = self.temperature_slider.value() / 10.0
+            temperature_text = f"{temperature:.1f}"
+
             env_dir = os.path.dirname(self.env_path)
             if not os.path.exists(env_dir):
                 os.makedirs(env_dir)
 
             # 在保存前，将当前输入框的API密钥更新到字典中
-            current_provider = self.api_provider_combo.currentText()
             current_provider = self.api_provider_combo.currentText()
             self.api_keys[current_provider] = self.api_key_input.text()
             self.model_names[current_provider] = self.model_name_combo.currentText()
@@ -224,6 +265,8 @@ class OcrConfigDialog(QDialog):
             dotenv.set_key(self.env_path, "OCR_API_PROVIDER", self.api_provider_combo.currentText())
             dotenv.set_key(self.env_path, "OCR_API_BASE_URL", self.api_url_input.text())
             # 保存提示词
+            # 保存温度设置
+            dotenv.set_key(self.env_path, "OCR_TEMPERATURE", temperature_text)
             dotenv.set_key(self.env_path, "OCR_PROMPT", self.prompt_input.toPlainText())
 
             # 分别保存不同提供商的API密钥和模型名称
@@ -260,6 +303,12 @@ class OcrConfigDialog(QDialog):
     def _on_api_key_changed(self):
         """当API Key输入框内容改变时"""
         self._update_fetch_button_state()
+        
+    def _on_temperature_changed(self, value):
+        """当温度滑块值改变时"""
+        # 将0-20的整数值转换为0.0-2.0的浮点数
+        temperature = value / 10.0
+        self.temperature_label.setText(f"{temperature:.1f}")
         
     def _update_fetch_button_state(self):
         """更新获取模型按钮的状态"""
@@ -304,6 +353,13 @@ class OcrConfigDialog(QDialog):
         for i in range(self.form_layout.rowCount()):
             label_item = self.form_layout.itemAt(i, QFormLayout.LabelRole)
             if label_item and label_item.widget().text() == "API Base URL:":
+                self.form_layout.setRowVisible(i, not is_mistral)
+                break
+                
+        # 隐藏/显示温度控件（只有OpenAI兼容模式才有温度设置）
+        for i in range(self.form_layout.rowCount()):
+            label_item = self.form_layout.itemAt(i, QFormLayout.LabelRole)
+            if label_item and label_item.widget().text() == "温度 (Temperature):":
                 self.form_layout.setRowVisible(i, not is_mistral)
                 break
 

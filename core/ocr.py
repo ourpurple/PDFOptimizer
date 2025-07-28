@@ -23,6 +23,7 @@ def _process_with_openai_compatible(
     prompt_text: str,
     timeout: int,
     logger: Any,
+    temperature: float = 1.0,  # 添加温度参数，默认值为1.0
     progress_callback: Optional[Callable] = None,
     check_running: Optional[Callable] = lambda: True,
 ) -> str:
@@ -63,6 +64,7 @@ def _process_with_openai_compatible(
                     ]
                 }
             ],
+"temperature": temperature,  # 添加温度参数
             "max_tokens": 4096
         }
         
@@ -210,6 +212,7 @@ def process_images_with_model(
     prompt_text: str,
     logger: Any,
     timeout: int = 120,
+    temperature: float = 1.0,  # 添加温度参数，默认值为1.0
     progress_callback: Optional[Callable] = None,
     check_running: Optional[Callable] = lambda: True,
 ) -> Dict[str, Any]:
@@ -259,6 +262,7 @@ def process_images_with_model(
             model_name=model_name,
             api_base_url=api_base_url,
             prompt_text=prompt_text,
+            temperature=temperature,  # 传递温度参数
             timeout=timeout,
             logger=logger,
             progress_callback=progress_callback,

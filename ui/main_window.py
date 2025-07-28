@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QMenu, QCheckBox, QDialog, QLineEdit, QTextEdit, QFormLayout
 )
 from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl
-from PySide6.QtGui import QIcon, QDesktopServices
+from PySide6.QtGui import QDropEvent, QIcon, QDesktopServices
 import os
 import re
 import time
@@ -482,7 +482,7 @@ class OcrWorker(QThread):
     total_progress = Signal(int)
     preview_updated = Signal(str)  # 新增信号，用于更新预览
 
-    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir, api_provider):
+    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir, api_provider, temperature=1.0):
         super().__init__()
         self.file_path = file_path
         self.api_key = api_key
@@ -491,6 +491,7 @@ class OcrWorker(QThread):
         self.prompt_text = prompt_text
         self.temp_dir = temp_dir
         self.api_provider = api_provider
+        self.temperature = temperature  # 添加温度参数
         self._is_running = True
         self.logger = self._setup_logger()
         self.preview_content = ""  # 用于累积预览内容
@@ -588,6 +589,7 @@ class OcrWorker(QThread):
                 model_name=self.model_name,
                 prompt_text=self.prompt_text,
                 logger=self.logger,
+                temperature=self.temperature,  # 传递温度参数
                 progress_callback=progress_callback
             )
 
@@ -953,23 +955,35 @@ class MainWindow(QMainWindow):
     def show_about_dialog(self):
         about_text = f"""
 <div style='color:#333333;'>
-    <p style='font-size:12pt; font-weight:bold;'>PDF Optimizer</p>
-    <p style='font-size:9pt;'>一个用于优化、转曲和处理PDF文件的桌面工具。</p>
+    <p style='font-size:14pt; font-weight:bold; text-align:center;'>PDF Optimizer</p>
+    <p style='font-size:10pt; text-align:center;'>一个功能强大的PDF处理工具</p>
     <hr>
-    <p style='font-size:9pt;'><b>版        本:</b> {self.app_version}</p>
-    <p style='font-size:9pt;'><b>作        者:</b> WanderInDoor</p>
-    <p style='font-size:9pt;'><b>联系方式:</b> 76757488@qq.com</p>
-    <p style='font-size:9pt;'><b>源   代   码:</b> <a href="https://github.com/ourpurple/PDFOptimizer">https://github.com/ourpurple/PDFOptimizer</a></p>
+    <p style='font-size:10pt;'><b>版本:</b> {self.app_version}</p>
+    <p style='font-size:10pt;'><b>作者:</b> WanderInDoor</p>
+    <p style='font-size:10pt;'><b>联系方式:</b> 76757488@qq.com</p>
+    <p style='font-size:10pt;'><b>源代码:</b> <a href="https://github.com/ourpurple/PDFOptimizer">https://github.com/ourpurple/PDFOptimizer</a></p>
     <hr>
-    <p style='font-size:8pt; color:grey;'>基于 PySide6, Pikepdf 和 Ghostscript 构建。</p>
+    <p style='font-size:10pt;'><b>主要功能:</b></p>
+    <ul style='font-size:9pt;'>
+        <li>PDF优化（压缩）</li>
+        <li>PDF合并与分割</li>
+        <li>PDF转图片</li>
+        <li>PDF转曲（字体轮廓化）</li>
+        <li>PDF书签管理</li>
+        <li>PDF OCR识别（支持AI模型）</li>
+    </ul>
+    <hr>
+    <p style='font-size:8pt; color:grey;'>基于 PySide6, Pikepdf, PyMuPDF 和 Ghostscript 构建</p>
 </div>
 """
         CustomMessageBox.about(self, "关于 PDF Optimizer", about_text)
+
     def apply_stylesheet(self):
         style_path = resource_path("ui/style.qss")
         if os.path.exists(style_path):
             with open(style_path, "r", encoding="utf-8") as f:
                 self.setStyleSheet(f.read())
+
     def check_ghostscript(self):
         self.gs_installed = is_ghostscript_installed()
         if self.gs_installed:
@@ -1698,6 +1712,8 @@ class MainWindow(QMainWindow):
         # 从环境变量获取配置
         api_base_url = os.getenv("OCR_API_BASE_URL", "https://api.openai.com/v1")
         prompt_text = os.getenv("OCR_PROMPT", "这是一个PDF页面。请准确识别所有内容，并将其转换为结构良好的Markdown格式。")
+        # 获取温度参数，默认值为1.0
+        temperature = float(os.getenv("OCR_TEMPERATURE", "1.0"))
         
         self.ocr_worker = OcrWorker(
             file_path=file_path_data,
@@ -1706,7 +1722,8 @@ class MainWindow(QMainWindow):
             api_base_url=api_base_url,
             prompt_text=prompt_text,
             temp_dir=self.temp_dir,
-            api_provider=api_provider
+            api_provider=api_provider,
+            temperature=temperature  # 传递温度参数
         )
         self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
