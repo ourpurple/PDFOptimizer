@@ -598,7 +598,8 @@ class OcrWorker(QThread):
 
             # 3. 处理结果
             self.total_progress.emit(100)
-            ocr_result['logger'] = self.logger # 确保logger实例被传递回去
+            ocr_result['logger'] = self.logger
+            ocr_result['model_name'] = self.model_name
             self.ocr_finished.emit(ocr_result)
             
             if ocr_result.get("success"):
@@ -1740,7 +1741,8 @@ class MainWindow(QMainWindow):
         
         if result.get("success"):
             markdown_content = result.get("markdown_content", "")
-            logger.info(f"接收到OCR结果，原始内容长度: {len(markdown_content)} 字符。")
+            model_name = result.get("model_name", "unknown_model")
+            logger.info(f"接收到OCR结果，模型: {model_name}, 原始内容长度: {len(markdown_content)} 字符。")
             
             self.ocr_result_text.setPlainText(markdown_content)
             self.ocr_table.setItem(0, 1, QTableWidgetItem("识别成功"))
@@ -1750,13 +1752,21 @@ class MainWindow(QMainWindow):
                 file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
                 if not file_path_data:
                     raise Exception("无法获取原始文件路径。")
-
+                
                 base_name_with_ext = os.path.basename(file_path_data)
                 base_name, _ = os.path.splitext(base_name_with_ext)
                 output_dir = os.path.dirname(file_path_data)
                 
+                # 创建带时间戳和模型信息的文件名
+                timestamp = time.strftime("%Y%m%d-%H%M")
+                
+                # 清理模型名称，移除可能导致问题的字符
+                safe_model_name = re.sub(r'[\\/:*?"<>|]', '_', model_name)
+                
+                new_base_filename = f"{base_name}[{safe_model_name}][{timestamp}]"
+                
                 # 保存 Markdown 文件
-                md_filename = f"{base_name}[ocr].md"
+                md_filename = f"{new_base_filename}.md"
                 md_save_path = os.path.join(output_dir, md_filename)
                 with open(md_save_path, 'w', encoding='utf-8') as f:
                     f.write(markdown_content)
@@ -1765,7 +1775,7 @@ class MainWindow(QMainWindow):
                 # 如果安装了 Pandoc，则保存 Word 文件
                 docx_save_path = None
                 if self.pandoc_installed:
-                    docx_filename = f"{base_name}[ocr].docx"
+                    docx_filename = f"{new_base_filename}.docx"
                     docx_save_path = os.path.join(output_dir, docx_filename)
                     processed_content = preprocess_markdown_for_pandoc(markdown_content)
                     conversion_result = convert_markdown_to_docx_with_pandoc(processed_content, docx_save_path)
