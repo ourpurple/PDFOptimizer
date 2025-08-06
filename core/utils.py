@@ -130,7 +130,7 @@ def convert_markdown_to_docx_with_pandoc(markdown_content, docx_path):
         # 2. 调用 pandoc 读取临时文件进行转换
         cmd = [
             "pandoc",
-            "-f", "markdown+tex_math_dollars",
+            "-f", "markdown+tex_math_dollars+hard_line_breaks",
             "-t", "docx",
             "-o", docx_path,
             temp_md_path  # 从文件读取
