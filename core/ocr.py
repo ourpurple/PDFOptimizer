@@ -102,12 +102,19 @@ def _process_with_openai_compatible(
 
                 if not page_content:
                     logger.warning(f"页面 {i+1}: API返回了空的内容。")
-
-                logger.info(f"页面 {i+1}: 第 {attempt + 1} 次尝试成功，内容长度: {len(page_content)} 字符。")
-                if progress_callback:
-                    progress_callback(i + 1, total_images, "成功", page_content)
-                api_success = True
-                break
+                    # 如果内容为空，继续重试而不是标记为成功
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                else:
+                    logger.info(f"页面 {i+1}: 第 {attempt + 1} 次尝试成功，内容长度: {len(page_content)} 字符。")
+                    if progress_callback:
+                        progress_callback(i + 1, total_images, "成功", page_content)
+                    api_success = True
+                    break
+                    
+                # 如果到达这里，说明内容为空且已达到最大重试次数
+                logger.warning(f"页面 {i+1}: API返回空内容，已达到最大重试次数 {max_retries}。")
                 
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 error_message = f"API请求失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"

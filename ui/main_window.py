@@ -543,7 +543,7 @@ class OcrWorker(QThread):
                     shutil.rmtree(image_output_dir)
                 os.makedirs(image_output_dir)
                 
-                convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=200)
+                convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=300)
                 if not convert_result["success"]:
                     self.logger.error(f"PDF转图片失败: {convert_result['message']}")
                     raise Exception(f"PDF转图片失败: {convert_result['message']}")
