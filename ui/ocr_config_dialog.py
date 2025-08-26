@@ -124,6 +124,11 @@ class OcrConfigDialog(QDialog):
         self.prompt_input = QTextEdit()
         self.prompt_input.setFixedHeight(100)  # 设置提示词输入框的高度
         
+        # 添加逐页保存模式选项
+        self.per_page_save_checkbox = QComboBox()
+        self.per_page_save_checkbox.addItems(["逐页保存模式", "合并保存模式"])
+        self.per_page_save_checkbox.setToolTip("逐页保存：每页生成单独的MD和DOCX文件\n合并保存：所有页面合并为一个MD和DOCX文件")
+        
         self.form_layout.addRow("API 提供商:", self.api_provider_combo)
         
         # 将 API Base URL 的标签和输入框保存为成员变量，以便隐藏/显示
@@ -136,6 +141,7 @@ class OcrConfigDialog(QDialog):
 
         self.form_layout.addRow("API Key:", self.api_key_input)
         self.form_layout.addRow("模型名称:", self.model_name_combo)
+        self.form_layout.addRow("保存模式:", self.per_page_save_checkbox)
         self.form_layout.addRow("温度 (Temperature):", self.temperature_widget)
         self.form_layout.addRow("提示词 (Prompt):", self.prompt_input)
         
@@ -205,6 +211,13 @@ class OcrConfigDialog(QDialog):
         except ValueError:
             # 如果不是有效数字，使用默认值
             self.temperature_slider.setValue(10)
+        
+        # 加载保存模式设置
+        save_mode = os.getenv("OCR_SAVE_MODE", "per_page")
+        if save_mode == "merged":
+            self.per_page_save_checkbox.setCurrentText("合并保存模式")
+        else:
+            self.per_page_save_checkbox.setCurrentText("逐页保存模式")
         
         # 加载保存的模型列表
         if os.path.exists(self.models_path):

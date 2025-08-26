@@ -482,7 +482,7 @@ class OcrWorker(QThread):
     total_progress = Signal(int)
     preview_updated = Signal(str)  # 新增信号，用于更新预览
 
-    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir, api_provider, temperature=1.0):
+    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir, api_provider, temperature=1.0, save_mode="per_page"):
         super().__init__()
         self.file_path = file_path
         self.api_key = api_key
@@ -492,6 +492,7 @@ class OcrWorker(QThread):
         self.temp_dir = temp_dir
         self.api_provider = api_provider
         self.temperature = temperature  # 添加温度参数
+        self.save_mode = save_mode  # 添加保存模式参数
         self._is_running = True
         self.logger = self._setup_logger()
         self.preview_content = ""  # 用于累积预览内容
@@ -582,7 +583,7 @@ class OcrWorker(QThread):
             
             ocr_result = process_images_with_model(
                 image_paths=image_paths,
-                pdf_path=pdf_path, # 新增参数
+                pdf_path=self.file_path, # 始终使用原始PDF文件路径
                 api_provider=self.api_provider,
                 api_key=self.api_key,
                 api_base_url=self.api_base_url,
@@ -590,6 +591,7 @@ class OcrWorker(QThread):
                 prompt_text=self.prompt_text,
                 logger=self.logger,
                 temperature=self.temperature,  # 传递温度参数
+                save_mode=self.save_mode,  # 传递保存模式参数
                 progress_callback=progress_callback
             )
 
@@ -1715,6 +1717,8 @@ class MainWindow(QMainWindow):
         prompt_text = os.getenv("OCR_PROMPT", "这是一个PDF页面。请准确识别所有内容，并将其转换为结构良好的Markdown格式。")
         # 获取温度参数，默认值为1.0
         temperature = float(os.getenv("OCR_TEMPERATURE", "1.0"))
+        # 获取保存模式配置
+        save_mode = os.getenv("OCR_SAVE_MODE", "per_page")
         
         self.ocr_worker = OcrWorker(
             file_path=file_path_data,
@@ -1724,7 +1728,8 @@ class MainWindow(QMainWindow):
             prompt_text=prompt_text,
             temp_dir=self.temp_dir,
             api_provider=api_provider,
-            temperature=temperature  # 传递温度参数
+            temperature=temperature,  # 传递温度参数
+            save_mode=save_mode  # 传递保存模式参数
         )
         self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
@@ -1747,7 +1752,7 @@ class MainWindow(QMainWindow):
             self.ocr_result_text.setPlainText(markdown_content)
             self.ocr_table.setItem(0, 1, QTableWidgetItem("识别成功"))
             
-            # 自动保存逻辑
+            # 获取文件路径信息
             try:
                 file_path_data = self.ocr_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
                 if not file_path_data:
@@ -1757,46 +1762,83 @@ class MainWindow(QMainWindow):
                 base_name, _ = os.path.splitext(base_name_with_ext)
                 output_dir = os.path.dirname(file_path_data)
                 
-                # 创建带时间戳和模型信息的文件名
-                timestamp = time.strftime("%Y%m%d-%H%M")
+                # 检查是否使用了逐页保存模式
+                md_dir = os.path.join(output_dir, f"{base_name}_md")
+                word_dir = os.path.join(output_dir, f"{base_name}_word")
                 
-                # 清理模型名称，移除可能导致问题的字符
-                safe_model_name = re.sub(r'[\\/:*?"<>|]', '_', model_name)
+                # 规范化路径，解决混用斜杠的问题
+                md_dir = os.path.normpath(md_dir)
+                word_dir = os.path.normpath(word_dir)
                 
-                new_base_filename = f"{base_name}[{safe_model_name}][{timestamp}]"
+                # 检查逐页保存模式是否正确执行
+                md_exists = os.path.exists(md_dir) and os.path.isdir(md_dir)
+                has_individual_files = False
                 
-                # 保存 Markdown 文件
-                md_filename = f"{new_base_filename}.md"
-                md_save_path = os.path.join(output_dir, md_filename)
-                with open(md_save_path, 'w', encoding='utf-8') as f:
-                    f.write(markdown_content)
-                logger.info(f"OCR结果已自动保存到: {md_save_path}")
-
-                # 如果安装了 Pandoc，则保存 Word 文件
-                docx_save_path = None
-                if self.pandoc_installed:
-                    docx_filename = f"{new_base_filename}.docx"
-                    docx_save_path = os.path.join(output_dir, docx_filename)
-                    processed_content = preprocess_markdown_for_pandoc(markdown_content)
-                    conversion_result = convert_markdown_to_docx_with_pandoc(processed_content, docx_save_path)
-                    if conversion_result["success"]:
-                        logger.info(f"OCR结果已自动转换为 DOCX: {docx_save_path}")
+                if md_exists:
+                    # 检查是否有实际的逐页文件
+                    md_files = [f for f in os.listdir(md_dir) if f.endswith('.md') and f.startswith(f"{base_name}[P")]
+                    if len(md_files) > 0:
+                        has_individual_files = True
+                
+                if has_individual_files:
+                    # 新的逐页保存模式
+                    md_files = [f for f in os.listdir(md_dir) if f.endswith('.md')]
+                    docx_files = []
+                    if os.path.exists(word_dir) and os.path.isdir(word_dir):
+                        docx_files = [f for f in os.listdir(word_dir) if f.endswith('.docx')]
+                    
+                    total_pages = len(md_files)
+                    docx_count = len(docx_files)
+                    
+                    save_message = f"OCR识别完成！共处理 {total_pages} 页。\n\n"
+                    save_message += f"每页Markdown文件已保存到：\n{md_dir}\n"
+                    
+                    if docx_count > 0:
+                        save_message += f"\n每页Word文件已保存到：\n{word_dir}\n"
+                        self.status_label.setText(f"OCR成功！已逐页保存为 MD 和 DOCX，共 {total_pages} 页。")
                     else:
-                        logger.error(f"自动转换为 DOCX 失败: {conversion_result['message']}")
-                        CustomMessageBox.warning(self, "Word 转换失败", f"无法将Markdown转换为Word文档。\n\nPandoc错误: {conversion_result['message']}")
-                        docx_save_path = None
+                        self.status_label.setText(f"OCR成功！已逐页保存为 MD，共 {total_pages} 页。")
+                    
+                    CustomMessageBox.information(self, "识别成功", save_message)
+                    
                 else:
-                    logger.warning("未检测到 Pandoc，跳过 DOCX 转换。")
-                
-                # 更新 UI 消息
-                if docx_save_path:
-                    save_message = f"结果已自动保存到：\n{md_save_path}\n{docx_save_path}"
-                    self.status_label.setText("OCR成功！结果已自动保存为 MD 和 DOCX。")
-                else:
-                    save_message = f"结果已自动保存到：\n{md_save_path}"
-                    self.status_label.setText("OCR成功！结果已自动保存为 MD。")
-                
-                CustomMessageBox.information(self, "识别成功", save_message)
+                    # 旧的合并保存模式（向后兼容）
+                    timestamp = time.strftime("%Y%m%d-%H%M")
+                    safe_model_name = re.sub(r'[\\/:*?"<>|]', '_', model_name)
+                    new_base_filename = f"{base_name}[{safe_model_name}][{timestamp}]"
+                    
+                    # 保存 Markdown 文件
+                    md_filename = f"{new_base_filename}.md"
+                    md_save_path = os.path.join(output_dir, md_filename)
+                    with open(md_save_path, 'w', encoding='utf-8') as f:
+                        f.write(markdown_content)
+                    logger.info(f"OCR结果已自动保存到: {md_save_path}")
+
+                    # 如果安装了 Pandoc，则保存 Word 文件
+                    docx_save_path = None
+                    if self.pandoc_installed:
+                        docx_filename = f"{new_base_filename}.docx"
+                        docx_save_path = os.path.join(output_dir, docx_filename)
+                        processed_content = preprocess_markdown_for_pandoc(markdown_content)
+                        conversion_result = convert_markdown_to_docx_with_pandoc(processed_content, docx_save_path)
+                        if conversion_result["success"]:
+                            logger.info(f"OCR结果已自动转换为 DOCX: {docx_save_path}")
+                        else:
+                            logger.error(f"自动转换为 DOCX 失败: {conversion_result['message']}")
+                            CustomMessageBox.warning(self, "Word 转换失败", f"无法将Markdown转换为Word文档。\n\nPandoc错误: {conversion_result['message']}")
+                            docx_save_path = None
+                    else:
+                        logger.warning("未检测到 Pandoc，跳过 DOCX 转换。")
+                    
+                    # 更新 UI 消息
+                    if docx_save_path:
+                        save_message = f"结果已自动保存到：\n{md_save_path}\n{docx_save_path}"
+                        self.status_label.setText("OCR成功！结果已自动保存为 MD 和 DOCX。")
+                    else:
+                        save_message = f"结果已自动保存到：\n{md_save_path}"
+                        self.status_label.setText("OCR成功！结果已自动保存为 MD。")
+                    
+                    CustomMessageBox.information(self, "识别成功", save_message)
 
             except Exception as e:
                 error_msg = f"自动保存OCR结果时出错: {str(e)}"
