@@ -3,15 +3,40 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget,
     QLabel, QFileDialog, QTableWidget, QProgressBar, QHBoxLayout,
     QComboBox, QHeaderView, QTableWidgetItem, QMessageBox, QAbstractItemView,
-    QTabWidget, QMenu, QCheckBox, QDialog, QLineEdit, QTextEdit, QFormLayout
+    QTabWidget, QMenu, QCheckBox, QDialog, QLineEdit, QTextEdit, QFormLayout,
+    QSplitter
 )
-from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl
+from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl, QMetaObject
 from PySide6.QtGui import QDropEvent, QIcon, QDesktopServices
 import os
 import re
 import time
-import httpx
 import logging
+from datetime import datetime
+
+
+class QTextEditLogHandler(logging.Handler):
+    """自定义日志处理器，将日志输出到QTextEdit控件"""
+    
+    def __init__(self, text_edit):
+        super().__init__()
+        self.text_edit = text_edit
+        
+    def emit(self, record):
+        """发送日志消息到QTextEdit"""
+        try:
+            msg = self.format(record)
+            # 使用QMetaObject.invokeMethod确保在主线程中更新UI
+            QMetaObject.invokeMethod(
+                self.text_edit,
+                "append",
+                Qt.QueuedConnection,
+                msg
+            )
+        except Exception:
+            pass  # 忽略日志处理中的错误
+
+
 from core import (
     optimize_pdf,
     convert_to_curves_with_ghostscript,
@@ -69,9 +94,9 @@ class SortableTableWidget(QTableWidget):
                 for column in range(self.columnCount()):
                     item = self.item(row, column)
                     if item:
-                        # Clone the item to avoid moving the same item instance
+                        # 克隆项目以避免移动相同的项目实例
                         clone_item = QTableWidgetItem(item)
-                        # Copy user data if it exists
+                        # 如果存在用户数据则复制
                         for role in range(Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 100):
                             data = item.data(role)
                             if data is not None:
@@ -81,13 +106,13 @@ class SortableTableWidget(QTableWidget):
                         row_data.append(None)
                 rows_to_move.append(row_data)
 
-            # Adjust drop_row for items moved from above
+            # 为从上方移动的项目调整放置行
             for row in reversed(rows):
                 self.removeRow(row)
                 if row < drop_row:
                     drop_row -= 1
             
-            # Insert rows at the new position
+            # 在新位置插入行
             for row_index, row_data in enumerate(rows_to_move):
                 row = drop_row + row_index
                 self.insertRow(row)
@@ -95,7 +120,7 @@ class SortableTableWidget(QTableWidget):
                     if item:
                         self.setItem(row, column, item)
 
-            # Reselect the moved rows
+            # 重新选择移动的行
             self.clearSelection()
             for row_index in range(len(rows_to_move)):
                 self.selectRow(drop_row + row_index)
@@ -116,7 +141,7 @@ class SortableTableWidget(QTableWidget):
             return False
         elif rect.bottom() - pos.y() < margin:
             return True
-        # Check if the drop position is in the lower half of the row
+        # 检查放置位置是否在行的下半部分
         return pos.y() - rect.top() > rect.height() / 2
 
     def keyPressEvent(self, event):
@@ -481,6 +506,7 @@ class OcrWorker(QThread):
     ocr_finished = Signal(dict)
     total_progress = Signal(int)
     preview_updated = Signal(str)  # 新增信号，用于更新预览
+    log_message = Signal(str)  # 新增信号，用于发送日志消息
 
     def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir, api_provider, temperature=1.0, save_mode="per_page"):
         super().__init__()
@@ -494,48 +520,42 @@ class OcrWorker(QThread):
         self.temperature = temperature  # 添加温度参数
         self.save_mode = save_mode  # 添加保存模式参数
         self._is_running = True
-        self.logger = self._setup_logger()
+        self.logger = logging.getLogger(__name__)
         self.preview_content = ""  # 用于累积预览内容
-
-    def _setup_logger(self):
-        """为当前OCR任务配置独立的日志记录器"""
-        log_filename = os.path.splitext(self.file_path)[0] + ".log"
-        logger_name = f"OcrLogger_{os.path.basename(self.file_path)}"
-        
-        logger = logging.getLogger(logger_name)
-        
-        # 防止重复添加handler
-        if not logger.handlers:
-            logger.setLevel(logging.INFO)
-            handler = logging.FileHandler(log_filename, encoding='utf-8')
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            
-        return logger
 
     def stop(self):
         self._is_running = False
+        
+    def log_and_emit(self, level, message):
+        """记录日志并发送到UI显示"""
+        # 记录到logger
+        log_method = getattr(self.logger, level, self.logger.info)
+        log_method(message)
+        
+        # 发送到UI
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        formatted_msg = f"{timestamp} - {level.upper()} - {message}"
+        self.log_message.emit(formatted_msg)
 
     def run(self):
         if not self._is_running:
             return
 
-        self.logger.info(f"===== OCR任务开始: {os.path.basename(self.file_path)} =====")
-        self.logger.info(f"使用提供商: {self.api_provider}")
+        self.log_and_emit('info', f"===== OCR任务开始: {os.path.basename(self.file_path)} =====")
+        self.log_and_emit('info', f"使用提供商: {self.api_provider}")
         try:
             image_paths = []
             pdf_path = None
 
             if self.api_provider == "Mistral API":
                 # 对于Mistral API，我们直接传递PDF文件路径，不进行图片转换
-                self.logger.info("步骤1: Mistral API模式，跳过PDF转图片。")
+                self.log_and_emit('info', "步骤1: Mistral API模式，跳过PDF转图片。")
                 self.ocr_progress.emit("Mistral API模式，直接处理PDF...")
                 pdf_path = self.file_path
             else:
                 # 对于类OpenAI API，需要先将PDF转换为图片
                 self.ocr_progress.emit("正在将PDF转换为图片...")
-                self.logger.info("步骤1: 开始将PDF转换为图片...")
+                self.log_and_emit('info', "步骤1: 开始将PDF转换为图片...")
                 file_name_without_ext, _ = os.path.splitext(os.path.basename(self.file_path))
                 image_output_dir = os.path.join(self.temp_dir, file_name_without_ext)
                 
@@ -546,17 +566,17 @@ class OcrWorker(QThread):
                 
                 convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=300)
                 if not convert_result["success"]:
-                    self.logger.error(f"PDF转图片失败: {convert_result['message']}")
+                    self.log_and_emit('error', f"PDF转图片失败: {convert_result['message']}")
                     raise Exception(f"PDF转图片失败: {convert_result['message']}")
                 
-                self.logger.info("PDF转图片成功。")
+                self.log_and_emit('info', "PDF转图片成功。")
                 image_paths = sorted(
                     [os.path.join(image_output_dir, f) for f in os.listdir(image_output_dir) if f.lower().endswith('.png')],
                     key=lambda x: int(re.search(r'(\d+)', os.path.basename(x)).group(1)) if re.search(r'(\d+)', os.path.basename(x)) else 0
                 )
                 
                 if not image_paths:
-                    self.logger.error("没有从PDF中生成任何图片。")
+                    self.log_and_emit('error', "没有从PDF中生成任何图片。")
                     raise Exception("没有从PDF中生成任何图片。")
 
             # 2. 调用核心OCR处理函数
@@ -579,7 +599,7 @@ class OcrWorker(QThread):
                 return True
 
             self.ocr_progress.emit("正在调用AI模型进行识别...")
-            self.logger.info("步骤2: 调用核心OCR模块...")
+            self.log_and_emit('info', "步骤2: 调用核心OCR模块...")
             
             ocr_result = process_images_with_model(
                 image_paths=image_paths,
@@ -605,25 +625,31 @@ class OcrWorker(QThread):
             self.ocr_finished.emit(ocr_result)
             
             if ocr_result.get("success"):
-                 self.logger.info("===== OCR任务成功结束 =====")
+                 self.log_and_emit('info', "===== OCR任务成功结束 =====") 
             else:
-                 self.logger.warning(f"===== OCR任务结束，但有错误: {ocr_result.get('message')} =====")
+                 self.log_and_emit('warning', f"===== OCR任务结束，但有错误: {ocr_result.get('message')} =====") 
 
         except InterruptedError:
-             self.logger.warning("任务已手动停止。")
+             self.log_and_emit('warning', "任务已手动停止。") 
              self.ocr_finished.emit({"success": False, "message": "任务已手动停止。"})
-             self.logger.info("===== OCR任务已停止 =====")
+             self.log_and_emit('info', "===== OCR任务已停止 =====") 
         except NotImplementedError as e:
-            self.logger.error(f"OCR功能尚未完全实现: {str(e)}", exc_info=True)
+            self.log_and_emit('error', f"OCR功能尚未完全实现: {str(e)}") 
             self.ocr_finished.emit({"success": False, "message": f"功能待定: {str(e)}", "logger": self.logger})
-            self.logger.info("===== OCR任务因功能未实现而终止 =====")
+            self.log_and_emit('info', "===== OCR任务因功能未实现而终止 =====") 
         except Exception as e:
-            self.logger.error(f"OCR任务发生未知严重错误: {str(e)}", exc_info=True)
+            self.log_and_emit('error', f"OCR任务发生未知严重错误: {str(e)}") 
             self.ocr_finished.emit({"success": False, "message": str(e), "logger": self.logger})
-            self.logger.info("===== OCR任务因错误而终止 =====")
+            self.log_and_emit('info', "===== OCR任务因错误而终止 =====") 
         finally:
             self.total_progress.emit(100)
+
+
 class MainWindow(QMainWindow):
+    # UI 布局常量
+    RESULT_SPLITTER_RATIO = [400, 400]  # 结果和日志区域1:1比例
+    MAIN_SPLITTER_RATIO = [300, 700]    # 文件表格30%:结果区域70%
+    
     def __init__(self):
         super().__init__()
         self.app_version = f"v{__version__}"
@@ -705,7 +731,7 @@ class MainWindow(QMainWindow):
                 self.add_files_to_pdf_to_image(files)
             elif current_tab == 4:
                 self.add_files_to_split(files)
-            elif current_tab == 5: # Bookmark tab
+            elif current_tab == 5: # 书签标签页
                 self.add_files_to_bookmark(files)
             elif current_tab == 6:
                 self.add_files_to_ocr(files)
@@ -736,6 +762,7 @@ class MainWindow(QMainWindow):
     def _reset_ocr_ui(self):
         self.ocr_progress_bar.setValue(0)
         self.ocr_result_text.clear()
+        self.ocr_log_text.clear()  # 清空日志显示区域
         if self.ocr_table.rowCount() > 0:
             self.ocr_table.setItem(0, 1, QTableWidgetItem("排队中..."))
  
@@ -945,7 +972,7 @@ class MainWindow(QMainWindow):
             self.split_table.setRowCount(0)
             self.split_progress_bar.setValue(0)
             self.status_label.setText("请选择要分割的PDF文件...")
-        elif current_tab == 5: # Bookmark tab
+        elif current_tab == 5: # 书签标签页
             self.bookmark_file_table.setRowCount(0)
             self.bookmark_progress_bar.setValue(0)
             self.status_label.setText("请选择要添加书签的PDF文件...")
@@ -1034,7 +1061,7 @@ class MainWindow(QMainWindow):
                 self.add_files_to_pdf_to_image(files)
             elif current_tab == 4:
                 self.add_files_to_split(files)
-            elif current_tab == 5: # Bookmark tab
+            elif current_tab == 5: # 书签标签页
                 self.add_files_to_bookmark(files)
             elif current_tab == 6:
                 self.add_files_to_ocr(files)
@@ -1140,7 +1167,7 @@ class MainWindow(QMainWindow):
         elif current_tab == 4 and hasattr(self, 'split_worker') and self.split_worker.isRunning():
             self.split_worker.stop()
             self.status_label.setText("分割任务已停止")
-        elif current_tab == 5 and hasattr(self, 'bookmark_worker') and self.bookmark_worker.isRunning(): # Bookmark tab
+        elif current_tab == 5 and hasattr(self, 'bookmark_worker') and self.bookmark_worker.isRunning(): # 书签标签页
             self.bookmark_worker.stop()
             self.status_label.setText("添加书签任务已停止")
         elif current_tab == 6 and hasattr(self, 'ocr_worker') and self.ocr_worker.isRunning():
@@ -1619,7 +1646,10 @@ class MainWindow(QMainWindow):
         top_controls_layout.addStretch()
         ocr_layout.addLayout(top_controls_layout)
         
-        # --- File Table ---
+        # --- 使用垂直分割器控制文件表格和结果区域的高度比例 ---
+        main_splitter = QSplitter(Qt.Vertical)
+        
+        # --- File Table (蓝框区域，占30%) ---
         self.ocr_table = SortableTableWidget()
         self.ocr_table.setColumnCount(2)
         self.ocr_table.setHorizontalHeaderLabels(["文件名", "状态"])
@@ -1628,13 +1658,44 @@ class MainWindow(QMainWindow):
         self.ocr_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.ocr_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.ocr_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        ocr_layout.addWidget(self.ocr_table)
+        main_splitter.addWidget(self.ocr_table)
         
-        # --- Result Display ---
+        # --- Result Display (红框区域，占70%，使用水平分割器分为结果区和日志区) ---
+        result_splitter = QSplitter(Qt.Horizontal)
+        
+        # OCR结果显示区域
         self.ocr_result_text = QTextEdit()
         self.ocr_result_text.setReadOnly(True)
         self.ocr_result_text.setPlaceholderText("OCR识别结果将显示在这里...")
-        ocr_layout.addWidget(self.ocr_result_text)
+        result_splitter.addWidget(self.ocr_result_text)
+        
+        # 日志显示区域
+        self.ocr_log_text = QTextEdit()
+        self.ocr_log_text.setReadOnly(True)
+        self.ocr_log_text.setPlaceholderText("OCR识别日志将显示在这里...")
+        result_splitter.addWidget(self.ocr_log_text)
+        
+        # 创建并配置日志处理器
+        self.ocr_log_handler = QTextEditLogHandler(self.ocr_log_text)
+        self.ocr_log_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', 
+                                    datefmt='%H:%M:%S')
+        self.ocr_log_handler.setFormatter(formatter)
+        
+        # 设置水平分割器的初始比例 (结果区域:日志区域 = 1:1，左右均分)
+        result_splitter.setSizes(self.RESULT_SPLITTER_RATIO)
+        result_splitter.setStretchFactor(0, 1)  # 结果区域占50%空间
+        result_splitter.setStretchFactor(1, 1)  # 日志区域占50%空间
+        
+        # 将结果分割器添加到主分割器中
+        main_splitter.addWidget(result_splitter)
+        
+        # 设置主分割器的高度比例 (文件表格:结果区域 = 30:70)
+        main_splitter.setSizes(self.MAIN_SPLITTER_RATIO)
+        main_splitter.setStretchFactor(0, 3)  # 文件表格占30%
+        main_splitter.setStretchFactor(1, 7)  # 结果区域占70%
+        
+        ocr_layout.addWidget(main_splitter)
         
         # --- Progress Bar and Bottom Controls ---
         self.ocr_progress_bar = QProgressBar()
@@ -1734,12 +1795,11 @@ class MainWindow(QMainWindow):
         self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
         self.ocr_worker.preview_updated.connect(self.ocr_result_text.setPlainText)  # 连接预览更新信号
+        self.ocr_worker.log_message.connect(self.ocr_log_text.append)  # 连接日志信号到日志显示区域
         self.ocr_worker.ocr_finished.connect(self.on_ocr_finished)
         self.ocr_worker.finished.connect(lambda: self._update_controls_state(is_task_running=False))
         self.ocr_worker.start()
         self.status_label.setText(f"正在使用 {api_provider} - {model_name} 进行OCR识别...")
-        
-
 
     def on_ocr_finished(self, result):
         logger = result.get("logger", logging.getLogger(__name__))

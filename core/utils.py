@@ -1,20 +1,12 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
 import logging
 import functools
-import re
 
-# 配置日志
-LOG_FILE = "app_log.log"
-logging.basicConfig(
-    level=logging.ERROR,
-    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
-    filename=LOG_FILE,
-    filemode='a',
-    encoding='utf-8'
-)
+# 日志配置已移除，使用默认logger
 logger = logging.getLogger(__name__)
 
 def handle_exception(func):
