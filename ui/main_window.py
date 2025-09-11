@@ -49,6 +49,7 @@ from core import (
     merge_pdfs_with_ghostscript,
     convert_pdf_to_images,
     split_pdf,
+    convert_image_to_pdf,
     __version__,
     batch_add_bookmarks_to_pdfs
 )
@@ -525,6 +526,15 @@ class OcrWorker(QThread):
 
     def stop(self):
         self._is_running = False
+    
+    def _is_image_file(self, file_path):
+        """检查文件是否为支持的图片格式"""
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'}
+        return os.path.splitext(file_path.lower())[1] in image_extensions
+    
+    def _is_pdf_file(self, file_path):
+        """检查文件是否为PDF格式"""
+        return os.path.splitext(file_path.lower())[1] == '.pdf'
         
     def log_and_emit(self, level, message):
         """记录日志并发送到UI显示"""
@@ -547,37 +557,68 @@ class OcrWorker(QThread):
             image_paths = []
             pdf_path = None
 
-            if self.api_provider == "Mistral API":
-                # 对于Mistral API，我们直接传递PDF文件路径，不进行图片转换
-                self.log_and_emit('info', "步骤1: Mistral API模式，跳过PDF转图片。")
-                self.ocr_progress.emit("Mistral API模式，直接处理PDF...")
-                pdf_path = self.file_path
+            # 检测文件类型
+            if self._is_image_file(self.file_path):
+                self.log_and_emit('info', "检测到图片文件。")
+                if self.api_provider == "Mistral API":
+                    # Mistral API只支持PDF，需要先将图片转换为PDF
+                    self.ocr_progress.emit("正在将图片转换为PDF...")
+                    self.log_and_emit('info', "步骤1: Mistral API模式，将图片转换为PDF。")
+                    
+                    # 创建临时PDF文件
+                    file_name_without_ext = os.path.splitext(os.path.basename(self.file_path))[0]
+                    temp_pdf_path = os.path.join(self.temp_dir, f"{file_name_without_ext}_temp.pdf")
+                    
+                    # 转换图片为PDF
+                    convert_result = convert_image_to_pdf(self.file_path, temp_pdf_path)
+                    if not convert_result["success"]:
+                        self.log_and_emit('error', f"图片转PDF失败: {convert_result['message']}")
+                        raise Exception(f"图片转PDF失败: {convert_result['message']}")
+                    
+                    self.log_and_emit('info', "图片转PDF成功。")
+                    pdf_path = temp_pdf_path
+                    image_paths = []
+                else:
+                    # OpenAI兼容模式直接处理图片
+                    self.ocr_progress.emit("使用图片文件进行OCR识别...")
+                    self.log_and_emit('info', "OpenAI兼容模式，直接处理图片文件。")
+                    image_paths = [self.file_path]
+                    pdf_path = None
+            elif self._is_pdf_file(self.file_path):
+                if self.api_provider == "Mistral API":
+                    # 对于Mistral API，我们直接传递PDF文件路径，不进行图片转换
+                    self.log_and_emit('info', "步骤1: Mistral API模式，跳过PDF转图片。")
+                    self.ocr_progress.emit("Mistral API模式，直接处理PDF...")
+                    pdf_path = self.file_path
+                else:
+                    # 对于类OpenAI API，需要先将PDF转换为图片
+                    self.ocr_progress.emit("正在将PDF转换为图片...")
+                    self.log_and_emit('info', "步骤1: 开始将PDF转换为图片...")
+                    file_name_without_ext, _ = os.path.splitext(os.path.basename(self.file_path))
+                    image_output_dir = os.path.join(self.temp_dir, file_name_without_ext)
+                    
+                    if os.path.exists(image_output_dir):
+                        import shutil
+                        shutil.rmtree(image_output_dir)
+                    os.makedirs(image_output_dir)
+                    
+                    convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=300)
+                    if not convert_result["success"]:
+                        self.log_and_emit('error', f"PDF转图片失败: {convert_result['message']}")
+                        raise Exception(f"PDF转图片失败: {convert_result['message']}")
+                    
+                    self.log_and_emit('info', "PDF转图片成功。")
+                    image_paths = sorted(
+                        [os.path.join(image_output_dir, f) for f in os.listdir(image_output_dir) if f.lower().endswith('.png')],
+                        key=lambda x: int(re.search(r'(\d+)', os.path.basename(x)).group(1)) if re.search(r'(\d+)', os.path.basename(x)) else 0
+                    )
+                    pdf_path = self.file_path  # 设置原始PDF路径用于保存
+                    
+                    if not image_paths:
+                        self.log_and_emit('error', "没有从PDF中生成任何图片。")
+                        raise Exception("没有从PDF中生成任何图片。")
             else:
-                # 对于类OpenAI API，需要先将PDF转换为图片
-                self.ocr_progress.emit("正在将PDF转换为图片...")
-                self.log_and_emit('info', "步骤1: 开始将PDF转换为图片...")
-                file_name_without_ext, _ = os.path.splitext(os.path.basename(self.file_path))
-                image_output_dir = os.path.join(self.temp_dir, file_name_without_ext)
-                
-                if os.path.exists(image_output_dir):
-                    import shutil
-                    shutil.rmtree(image_output_dir)
-                os.makedirs(image_output_dir)
-                
-                convert_result = convert_pdf_to_images(self.file_path, image_output_dir, dpi=300)
-                if not convert_result["success"]:
-                    self.log_and_emit('error', f"PDF转图片失败: {convert_result['message']}")
-                    raise Exception(f"PDF转图片失败: {convert_result['message']}")
-                
-                self.log_and_emit('info', "PDF转图片成功。")
-                image_paths = sorted(
-                    [os.path.join(image_output_dir, f) for f in os.listdir(image_output_dir) if f.lower().endswith('.png')],
-                    key=lambda x: int(re.search(r'(\d+)', os.path.basename(x)).group(1)) if re.search(r'(\d+)', os.path.basename(x)) else 0
-                )
-                
-                if not image_paths:
-                    self.log_and_emit('error', "没有从PDF中生成任何图片。")
-                    raise Exception("没有从PDF中生成任何图片。")
+                raise Exception("不支持的文件格式。请选择PDF文件或图片文件（JPG、PNG、BMP、TIFF）。")
 
             # 2. 调用核心OCR处理函数
             def progress_callback(current, total, message, page_content=""):
@@ -718,7 +759,16 @@ class MainWindow(QMainWindow):
         qr.moveCenter(cp)
         self.move(qr.topLeft())
     def select_files(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "选择PDF文件", "", "PDF Files (*.pdf)")
+        current_tab = self.tab_widget.currentIndex()
+        if current_tab == 6:  # OCR标签页
+            files, _ = QFileDialog.getOpenFileNames(
+                self, 
+                "选择PDF文件或图片", 
+                "", 
+                "所有支持的文件 (*.pdf *.jpg *.jpeg *.png *.bmp *.tiff *.tif);;PDF Files (*.pdf);;图片文件 (*.jpg *.jpeg *.png *.bmp *.tiff *.tif)"
+            )
+        else:
+            files, _ = QFileDialog.getOpenFileNames(self, "选择PDF文件", "", "PDF Files (*.pdf)")
         if files:
             current_tab = self.tab_widget.currentIndex()
             if current_tab == 0:
@@ -1634,7 +1684,7 @@ class MainWindow(QMainWindow):
         
         # --- Top Controls ---
         top_controls_layout = QHBoxLayout()
-        self.ocr_select_button = QPushButton("选择PDF文件 (仅限单个)")
+        self.ocr_select_button = QPushButton("选择PDF文件或图片 (仅限单个)")
         self.ocr_select_button.clicked.connect(self.select_files)
         top_controls_layout.addWidget(self.ocr_select_button)
         

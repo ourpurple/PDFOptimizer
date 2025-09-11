@@ -5,6 +5,7 @@ import subprocess
 import sys
 import logging
 import functools
+import fitz  # PyMuPDF
 
 # 日志配置已移除，使用默认logger
 logger = logging.getLogger(__name__)
@@ -157,3 +158,52 @@ def convert_markdown_to_docx_with_pandoc(markdown_content, docx_path):
                 os.remove(temp_md_path)
             except OSError as e:
                 logger.error(f"删除临时文件 {temp_md_path} 失败: {e}")
+
+
+@handle_exception
+def convert_image_to_pdf(image_path, output_pdf_path):
+    """
+    将图片文件转换为PDF文件
+    
+    :param image_path: 图片文件路径
+    :param output_pdf_path: 输出PDF文件路径
+    :return: 包含 success 标志和消息的字典
+    """
+    try:
+        # 创建一个新的PDF文档
+        pdf_document = fitz.open()
+        
+        # 打开图片文件
+        img_document = fitz.open(image_path)
+        
+        # 获取图片页面
+        page = img_document[0]
+        
+        # 获取图片的尺寸
+        img_rect = page.rect
+        
+        # 在PDF中创建一个新页面，尺寸与图片相同
+        pdf_page = pdf_document.new_page(width=img_rect.width, height=img_rect.height)
+        
+        # 将图片插入到PDF页面中
+        pdf_page.insert_image(img_rect, filename=image_path)
+        
+        # 保存PDF文件
+        pdf_document.save(output_pdf_path)
+        
+        # 关闭文档
+        pdf_document.close()
+        img_document.close()
+        
+        return {
+            "success": True,
+            "message": f"图片已成功转换为PDF: {output_pdf_path}"
+        }
+        
+    except Exception as e:
+        error_message = f"图片转PDF失败: {str(e)}"
+        logger.error(error_message, exc_info=True)
+        return {
+            "success": False,
+            "message": error_message
+        }
