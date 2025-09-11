@@ -523,9 +523,55 @@ class OcrWorker(QThread):
         self._is_running = True
         self.logger = logging.getLogger(__name__)
         self.preview_content = ""  # 用于累积预览内容
+        
+        # 创建核心模块日志处理器，用于捕获OCR模块的详细日志
+        self.core_logger = logging.getLogger('core.ocr')
+        self.core_logger_handler = None
 
     def stop(self):
         self._is_running = False
+        self._remove_core_logger_handler()
+    
+    def _setup_core_logger_handler(self):
+        """为核心OCR模块设置日志处理器，将其日志也显示在UI中"""
+        if self.core_logger_handler is None:
+            # 创建一个自定义处理器，将核心模块日志转发到UI
+            class CoreLogHandler(logging.Handler):
+                def __init__(self, ocr_worker):
+                    super().__init__()
+                    self.ocr_worker = ocr_worker
+                
+                def emit(self, record):
+                    try:
+                        # 格式化日志消息
+                        msg = self.format(record)
+                        # 转发到OCR工作线程的日志系统，使用HTML格式
+                        timestamp = datetime.now().strftime('%H:%M:%S')
+                        
+                        # 为核心模块日志使用不同的颜色
+                        level_colors = {
+                            'INFO': '#059669',      # 绿色 - 核心模块信息
+                            'WARNING': '#d97706',  # 深橙色
+                            'ERROR': '#b91c1c',    # 深红色
+                            'DEBUG': '#6b7280'     # 灰色
+                        }
+                        
+                        color = level_colors.get(record.levelname, '#374151')
+                        formatted_msg = f'<div style="color: {color}; font-style: italic;">[{timestamp}] CORE-{record.levelname}: {msg}</div>'
+                        self.ocr_worker.log_message.emit(formatted_msg)
+                    except Exception:
+                        pass
+            
+            self.core_logger_handler = CoreLogHandler(self)
+            self.core_logger_handler.setLevel(logging.INFO)
+            self.core_logger.addHandler(self.core_logger_handler)
+            self.core_logger.setLevel(logging.INFO)
+    
+    def _remove_core_logger_handler(self):
+        """移除核心模块的日志处理器"""
+        if self.core_logger_handler:
+            self.core_logger.removeHandler(self.core_logger_handler)
+            self.core_logger_handler = None
     
     def _is_image_file(self, file_path):
         """检查文件是否为支持的图片格式"""
@@ -542,17 +588,46 @@ class OcrWorker(QThread):
         log_method = getattr(self.logger, level, self.logger.info)
         log_method(message)
         
-        # 发送到UI
+        # 发送到UI，使用HTML格式增强显示效果
         timestamp = datetime.now().strftime('%H:%M:%S')
-        formatted_msg = f"{timestamp} - {level.upper()} - {message}"
+        
+        # 根据日志级别设置颜色和样式
+        level_colors = {
+            'info': '#2563eb',     # 蓝色
+            'warning': '#f59e0b',  # 橙色 
+            'error': '#dc2626',    # 红色
+            'debug': '#6b7280'     # 灰色
+        }
+        
+        color = level_colors.get(level.lower(), '#374151')
+        level_text = level.upper()
+        
+        # 特殊格式化
+        if "=====" in message:
+            # 任务开始/结束的分隔线
+            formatted_msg = f'<div style="color: {color}; font-weight: bold; border-top: 1px solid #e5e7eb; padding-top: 4px; margin-top: 4px;">[{timestamp}] {level_text}: {message}</div>'
+        elif message.startswith("步骤"):
+            # 步骤信息
+            formatted_msg = f'<div style="color: {color}; font-weight: bold;">[{timestamp}] {level_text}: {message}</div>'
+        else:
+            # 普通日志
+            formatted_msg = f'<div style="color: {color};">[{timestamp}] {level_text}: {message}</div>'
+        
         self.log_message.emit(formatted_msg)
 
     def run(self):
         if not self._is_running:
             return
+        
+        # 设置核心模块日志处理器，捕获详细日志
+        self._setup_core_logger_handler()
 
         self.log_and_emit('info', f"===== OCR任务开始: {os.path.basename(self.file_path)} =====")
         self.log_and_emit('info', f"使用提供商: {self.api_provider}")
+        self.log_and_emit('info', f"模型名称: {self.model_name}")
+        self.log_and_emit('info', f"API基础URL: {self.api_base_url}")
+        self.log_and_emit('info', f"保存模式: {self.save_mode}")
+        self.log_and_emit('info', f"温度参数: {self.temperature}")
         try:
             image_paths = []
             pdf_path = None
@@ -568,20 +643,24 @@ class OcrWorker(QThread):
                     # 创建临时PDF文件
                     file_name_without_ext = os.path.splitext(os.path.basename(self.file_path))[0]
                     temp_pdf_path = os.path.join(self.temp_dir, f"{file_name_without_ext}_temp.pdf")
+                    self.log_and_emit('info', f"临时PDF文件路径: {temp_pdf_path}")
                     
                     # 转换图片为PDF
+                    self.log_and_emit('info', "开始转换图片为PDF格式...")
                     convert_result = convert_image_to_pdf(self.file_path, temp_pdf_path)
                     if not convert_result["success"]:
                         self.log_and_emit('error', f"图片转PDF失败: {convert_result['message']}")
                         raise Exception(f"图片转PDF失败: {convert_result['message']}")
                     
-                    self.log_and_emit('info', "图片转PDF成功。")
+                    self.log_and_emit('info', f"图片转PDF成功，文件大小: {os.path.getsize(temp_pdf_path)} 字节")
                     pdf_path = temp_pdf_path
                     image_paths = []
                 else:
                     # OpenAI兼容模式直接处理图片
                     self.ocr_progress.emit("使用图片文件进行OCR识别...")
                     self.log_and_emit('info', "OpenAI兼容模式，直接处理图片文件。")
+                    file_size = os.path.getsize(self.file_path)
+                    self.log_and_emit('info', f"图片文件大小: {file_size} 字节")
                     image_paths = [self.file_path]
                     pdf_path = None
             elif self._is_pdf_file(self.file_path):
@@ -617,6 +696,8 @@ class OcrWorker(QThread):
                     if not image_paths:
                         self.log_and_emit('error', "没有从PDF中生成任何图片。")
                         raise Exception("没有从PDF中生成任何图片。")
+                    
+                    self.log_and_emit('info', f"成功生成 {len(image_paths)} 张图片")
             else:
                 raise Exception("不支持的文件格式。请选择PDF文件或图片文件（JPG、PNG、BMP、TIFF）。")
 
@@ -641,10 +722,13 @@ class OcrWorker(QThread):
 
             self.ocr_progress.emit("正在调用AI模型进行识别...")
             self.log_and_emit('info', "步骤2: 调用核心OCR模块...")
+            self.log_and_emit('info', f"API调用参数 - 提供商: {self.api_provider}, 模型: {self.model_name}")
+            self.log_and_emit('info', f"待处理项目数量 - 图片: {len(image_paths)}, PDF: {'是' if pdf_path else '否'}")
+            self.log_and_emit('info', f"提示词长度: {len(self.prompt_text)} 字符")
             
             ocr_result = process_images_with_model(
                 image_paths=image_paths,
-                pdf_path=self.file_path, # 始终使用原始PDF文件路径
+                pdf_path=pdf_path, # 使用正确的PDF路径
                 api_provider=self.api_provider,
                 api_key=self.api_key,
                 api_base_url=self.api_base_url,
@@ -663,12 +747,18 @@ class OcrWorker(QThread):
             self.total_progress.emit(100)
             ocr_result['logger'] = self.logger
             ocr_result['model_name'] = self.model_name
-            self.ocr_finished.emit(ocr_result)
             
+            # 记录结果详情
             if ocr_result.get("success"):
-                 self.log_and_emit('info', "===== OCR任务成功结束 =====") 
+                content_length = len(ocr_result.get("markdown_content", ""))
+                self.log_and_emit('info', f"OCR识别成功，生成内容长度: {content_length} 字符")
+                self.log_and_emit('info', f"处理结果: {ocr_result.get('message', '无详细信息')}")
+                self.log_and_emit('info', "===== OCR任务成功结束 =====") 
             else:
-                 self.log_and_emit('warning', f"===== OCR任务结束，但有错误: {ocr_result.get('message')} =====") 
+                self.log_and_emit('warning', f"OCR处理失败: {ocr_result.get('message', '未知错误')}")
+                self.log_and_emit('warning', f"===== OCR任务结束，但有错误: {ocr_result.get('message')} =====") 
+            
+            self.ocr_finished.emit(ocr_result)
 
         except InterruptedError:
              self.log_and_emit('warning', "任务已手动停止。") 
@@ -809,6 +899,13 @@ class MainWindow(QMainWindow):
         for row in range(self.bookmark_file_table.rowCount()):
             self.bookmark_file_table.setItem(row, 1, QTableWidgetItem("排队中..."))
             self.bookmark_file_table.setItem(row, 2, QTableWidgetItem("操作"))
+    def _append_log_with_scroll(self, html_message):
+        """添加HTML格式的日志消息并自动滚动到底部"""
+        self.ocr_log_text.append(html_message)
+        # 自动滚动到底部
+        scrollbar = self.ocr_log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+    
     def _reset_ocr_ui(self):
         self.ocr_progress_bar.setValue(0)
         self.ocr_result_text.clear()
@@ -1723,6 +1820,20 @@ class MainWindow(QMainWindow):
         self.ocr_log_text = QTextEdit()
         self.ocr_log_text.setReadOnly(True)
         self.ocr_log_text.setPlaceholderText("OCR识别日志将显示在这里...")
+        
+        # 设置日志区域样式
+        self.ocr_log_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: 11px;
+                line-height: 1.4;
+                padding: 8px;
+            }
+        """)
+        
         result_splitter.addWidget(self.ocr_log_text)
         
         # 创建并配置日志处理器
@@ -1845,7 +1956,7 @@ class MainWindow(QMainWindow):
         self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
         self.ocr_worker.preview_updated.connect(self.ocr_result_text.setPlainText)  # 连接预览更新信号
-        self.ocr_worker.log_message.connect(self.ocr_log_text.append)  # 连接日志信号到日志显示区域
+        self.ocr_worker.log_message.connect(self._append_log_with_scroll)  # 连接日志信号到日志显示区域
         self.ocr_worker.ocr_finished.connect(self.on_ocr_finished)
         self.ocr_worker.finished.connect(lambda: self._update_controls_state(is_task_running=False))
         self.ocr_worker.start()

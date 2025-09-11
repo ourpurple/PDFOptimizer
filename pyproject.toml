@@ -1,6 +1,6 @@
 [project]
 name = "pdfoptimizer"
-version = "3.6.0"
+version = "3.6.1"
 description = "A powerful PDF utility that supports PDF compression, merging, splitting, image conversion, text-to-curves conversion, and bookmark management."
 readme = "README.md"
 requires-python = ">=3.10"
