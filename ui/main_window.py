@@ -524,8 +524,8 @@ class OcrWorker(QThread):
         self.logger = logging.getLogger(__name__)
         self.preview_content = ""  # 用于累积预览内容
         
-        # 创建核心模块日志处理器，用于捕获OCR模块的详细日志
-        self.core_logger = logging.getLogger('core.ocr')
+        # 创建专门用于核心模块的logger
+        self.core_logger = logging.getLogger(f'core_ocr_{id(self)}')  # 使用唯一ID避免冲突
         self.core_logger_handler = None
 
     def stop(self):
@@ -533,7 +533,7 @@ class OcrWorker(QThread):
         self._remove_core_logger_handler()
     
     def _setup_core_logger_handler(self):
-        """为核心OCR模块设置日志处理器，将其日志也显示在UI中"""
+        """为专门的核心模块logger设置处理器，将其日志也显示在UI中"""
         if self.core_logger_handler is None:
             # 创建一个自定义处理器，将核心模块日志转发到UI
             class CoreLogHandler(logging.Handler):
@@ -564,8 +564,11 @@ class OcrWorker(QThread):
             
             self.core_logger_handler = CoreLogHandler(self)
             self.core_logger_handler.setLevel(logging.INFO)
+            # 为专门的核心模块logger添加处理器
             self.core_logger.addHandler(self.core_logger_handler)
             self.core_logger.setLevel(logging.INFO)
+            # 防止核心logger的消息传播到父logger
+            self.core_logger.propagate = False
     
     def _remove_core_logger_handler(self):
         """移除核心模块的日志处理器"""
@@ -734,7 +737,7 @@ class OcrWorker(QThread):
                 api_base_url=self.api_base_url,
                 model_name=self.model_name,
                 prompt_text=self.prompt_text,
-                logger=self.logger,
+                logger=self.core_logger,  # 传递专门的核心logger
                 temperature=self.temperature,  # 传递温度参数
                 save_mode=self.save_mode,  # 传递保存模式参数
                 progress_callback=progress_callback
@@ -780,6 +783,11 @@ class MainWindow(QMainWindow):
     # UI 布局常量
     RESULT_SPLITTER_RATIO = [400, 400]  # 结果和日志区域1:1比例
     MAIN_SPLITTER_RATIO = [300, 700]    # 文件表格30%:结果区域70%
+    
+    def _is_image_file(self, file_path):
+        """检查文件是否为支持的图片格式"""
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'}
+        return os.path.splitext(file_path.lower())[1] in image_extensions
     
     def __init__(self):
         super().__init__()
@@ -1192,12 +1200,22 @@ class MainWindow(QMainWindow):
             event.ignore()
     def dropEvent(self, event):
         files = []
+        current_tab = self.tab_widget.currentIndex()
+        
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.lower().endswith('.pdf'):
-                files.append(file_path)
+            
+            # OCR标签页支持PDF和图片文件
+            if current_tab == 6:  # OCR tab
+                if (file_path.lower().endswith('.pdf') or 
+                    self._is_image_file(file_path)):
+                    files.append(file_path)
+            else:
+                # 其他标签页只支持PDF文件
+                if file_path.lower().endswith('.pdf'):
+                    files.append(file_path)
+        
         if files:
-            current_tab = self.tab_widget.currentIndex()
             if current_tab == 0:
                 self.add_files_to_optimize(files)
             elif current_tab == 1:
