@@ -120,6 +120,97 @@ QLabel {
     color: #5C4033; /* Dark Brown */
 }
 
+/* OCR Config Dialog specific styles */
+QDialog QLabel {
+    font-size: 9pt;
+    font-family: "Microsoft YaHei", "SimHei", "Segoe UI", Arial, sans-serif;
+}
+
+QDialog QLineEdit, QDialog QComboBox, QDialog QTextEdit, QDialog QDoubleSpinBox {
+    font-size: 9pt;
+    font-family: "Microsoft YaHei", "SimHei", "Segoe UI", Arial, sans-serif;
+    line-height: 1.5;
+    padding: 5px;
+}
+
+QDialog QTableWidget {
+    font-size: 9pt;
+    font-family: "Microsoft YaHei", "SimHei", "Segoe UI", Arial, sans-serif;
+    line-height: 1.5;
+}
+
+QDialog QTableWidget::item {
+    padding: 6px 8px;
+    line-height: 1.5;
+    min-height: 24px;
+}
+
+QDialog QFormLayout QLabel {
+    font-size: 9pt;
+    font-family: "Microsoft YaHei", "SimHei", "Segoe UI", Arial, sans-serif;
+    line-height: 1.5;
+}
+
+QDialog QPushButton {
+    font-size: 9pt;
+    font-family: "Microsoft YaHei", "SimHei", "Segoe UI", Arial, sans-serif;
+    padding: 6px 12px;
+    min-height: 24px;
+}
+QDialog QGroupBox {
+    font-size: 10pt;
+    font-family: "Microsoft YaHei", "SimHei", "Segoe UI", Arial, sans-serif;
+    font-weight: bold;
+}
+
+/* Specific styles for ConfigManagerDialog */
+ConfigManagerDialog,
+QDialog[objectName="ConfigManagerDialog"] {
+    font-size: 9pt;
+    font-family: "Microsoft YaHei", "SimHei", "Segoe UI", Arial, sans-serif;
+}
+
+ConfigManagerDialog QLabel,
+QDialog[objectName="ConfigManagerDialog"] QLabel {
+    font-size: 9pt;
+    line-height: 1.5;
+}
+
+ConfigManagerDialog QLineEdit,
+QDialog[objectName="ConfigManagerDialog"] QLineEdit,
+ConfigManagerDialog QComboBox,
+QDialog[objectName="ConfigManagerDialog"] QComboBox,
+ConfigManagerDialog QTextEdit,
+QDialog[objectName="ConfigManagerDialog"] QTextEdit,
+ConfigManagerDialog QDoubleSpinBox,
+QDialog[objectName="ConfigManagerDialog"] QDoubleSpinBox {
+    font-size: 9pt;
+    line-height: 1.5;
+    padding: 5px;
+    min-height: 24px;
+}
+
+ConfigManagerDialog QTableWidget,
+QDialog[objectName="ConfigManagerDialog"] QTableWidget {
+    font-size: 9pt;
+    line-height: 1.5;
+}
+
+ConfigManagerDialog QTableWidget::item,
+QDialog[objectName="ConfigManagerDialog"] QTableWidget::item {
+    font-size: 9pt;
+    line-height: 1.5;
+    padding: 6px 8px;
+    min-height: 26px;
+}
+
+ConfigManagerDialog QProgressBar,
+QDialog[objectName="ConfigManagerDialog"] QProgressBar {
+    min-height: 20px;
+    font-size: 8pt;
+}
+
+
 #gs_status_label {
     padding: 5px;
     border-radius: 3px;

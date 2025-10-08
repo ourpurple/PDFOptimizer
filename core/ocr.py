@@ -7,6 +7,8 @@ from typing import List, Dict, Any, Optional, Callable
 from mistralai import Mistral
 
 from .utils import handle_exception, convert_markdown_to_docx_with_pandoc, preprocess_markdown_for_pandoc
+from .config_models import APIConfig
+from .config_manager import ConfigManager
 
 def encode_image_to_base64(image_path: str) -> Optional[str]:
     """将图片文件编码为 Base64 字符串"""
@@ -401,3 +403,98 @@ def process_images_with_model(
         "markdown_content": final_markdown,
         "message": f"成功调用 {api_provider} 模型处理了 {processed_item_count} {item_type}。"
     }
+
+@handle_exception
+def process_images_with_config(
+    image_paths: List[str],
+    pdf_path: Optional[str],
+    config: APIConfig,
+    logger: Any,
+    timeout: int = 120,
+    progress_callback: Optional[Callable] = None,
+    check_running: Optional[Callable] = lambda: True,
+) -> Dict[str, Any]:
+    """
+    使用配置对象处理图片或PDF文件
+    
+    :param image_paths: 图片文件路径列表 (用于类OpenAI模型)
+    :param pdf_path: PDF文件路径 (用于Mistral)
+    :param config: API配置对象
+    :param logger: 日志记录器实例
+    :param timeout: 请求超时时间（秒）
+    :param progress_callback: 进度回调函数
+    :param check_running: 用于检查任务是否应继续运行的回调函数
+    :return: 包含处理结果的字典
+    """
+    return process_images_with_model(
+        image_paths=image_paths,
+        pdf_path=pdf_path,
+        api_provider=config.provider,
+        api_key=config.api_key,
+        model_name=config.model_name,
+        api_base_url=config.api_base_url,
+        prompt_text=config.prompt,
+        logger=logger,
+        timeout=timeout,
+        temperature=config.temperature,
+        save_mode=config.save_mode,
+        progress_callback=progress_callback,
+        check_running=check_running,
+    )
+
+@handle_exception
+def process_images_with_default_config(
+    image_paths: List[str],
+    pdf_path: Optional[str],
+    logger: Any,
+    timeout: int = 120,
+    progress_callback: Optional[Callable] = None,
+    check_running: Optional[Callable] = lambda: True,
+) -> Dict[str, Any]:
+    """
+    使用默认配置处理图片或PDF文件
+    
+    :param image_paths: 图片文件路径列表 (用于类OpenAI模型)
+    :param pdf_path: PDF文件路径 (用于Mistral)
+    :param logger: 日志记录器实例
+    :param timeout: 请求超时时间（秒）
+    :param progress_callback: 进度回调函数
+    :param check_running: 用于检查任务是否应继续运行的回调函数
+    :return: 包含处理结果的字典
+    """
+    config_manager = ConfigManager()
+    profile = config_manager.load_configs()
+    default_config = profile.get_default_config()
+    
+    if not default_config:
+        raise ValueError("没有找到默认配置，请先在配置管理中设置默认配置")
+    
+    return process_images_with_config(
+        image_paths=image_paths,
+        pdf_path=pdf_path,
+        config=default_config,
+        logger=logger,
+        timeout=timeout,
+        progress_callback=progress_callback,
+        check_running=check_running,
+    )
+
+def get_available_configs() -> List[APIConfig]:
+    """
+    获取所有可用的配置
+    
+    :return: 配置列表
+    """
+    config_manager = ConfigManager()
+    profile = config_manager.load_configs()
+    return profile.configs
+
+def get_default_config() -> Optional[APIConfig]:
+    """
+    获取默认配置
+    
+    :return: 默认配置对象，如果没有则返回None
+    """
+    config_manager = ConfigManager()
+    profile = config_manager.load_configs()
+    return profile.get_default_config()

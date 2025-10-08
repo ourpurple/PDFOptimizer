@@ -53,8 +53,9 @@ from core import (
     __version__,
     batch_add_bookmarks_to_pdfs
 )
-from core.ocr import process_images_with_model
+from core.ocr import process_images_with_model, get_default_config, get_available_configs
 from .custom_dialog import CustomMessageBox, BookmarkEditDialog
+from .config_manager_dialog import ConfigManagerDialog
 import json
 import dotenv
 
@@ -509,20 +510,19 @@ class OcrWorker(QThread):
     preview_updated = Signal(str)  # 新增信号，用于更新预览
     log_message = Signal(str)  # 新增信号，用于发送日志消息
 
-    def __init__(self, file_path, api_key, model_name, api_base_url, prompt_text, temp_dir, api_provider, temperature=1.0, save_mode="per_page"):
+    def __init__(self, file_path, config, temp_dir):
         super().__init__()
         self.file_path = file_path
-        self.api_key = api_key
-        self.model_name = model_name
-        self.api_base_url = api_base_url
-        self.prompt_text = prompt_text
+        self.config = config
         self.temp_dir = temp_dir
-        self.api_provider = api_provider
-        self.temperature = temperature  # 添加温度参数
-        self.save_mode = save_mode  # 添加保存模式参数
         self._is_running = True
         self.logger = logging.getLogger(__name__)
         self.preview_content = ""  # 用于累积预览内容
+        
+        # 从配置中获取API提供商信息
+        self.api_provider = config.provider if config and hasattr(config, 'provider') else ""
+        self.model_name = config.model_name if config and hasattr(config, 'model_name') else ""
+        self.prompt_text = getattr(config, 'prompt_text', "请识别图片中的文字内容并返回纯文本格式。")  # 添加默认值
         
         # 创建专门用于核心模块的logger
         self.core_logger = logging.getLogger(f'core_ocr_{id(self)}')  # 使用唯一ID避免冲突
@@ -626,11 +626,12 @@ class OcrWorker(QThread):
         self._setup_core_logger_handler()
 
         self.log_and_emit('info', f"===== OCR任务开始: {os.path.basename(self.file_path)} =====")
-        self.log_and_emit('info', f"使用提供商: {self.api_provider}")
-        self.log_and_emit('info', f"模型名称: {self.model_name}")
-        self.log_and_emit('info', f"API基础URL: {self.api_base_url}")
-        self.log_and_emit('info', f"保存模式: {self.save_mode}")
-        self.log_and_emit('info', f"温度参数: {self.temperature}")
+        self.log_and_emit('info', f"使用配置: {self.config.name}")
+        self.log_and_emit('info', f"使用提供商: {self.config.provider}")
+        self.log_and_emit('info', f"模型名称: {self.config.model_name}")
+        self.log_and_emit('info', f"API基础URL: {self.config.api_base_url}")
+        self.log_and_emit('info', f"保存模式: {self.config.save_mode}")
+        self.log_and_emit('info', f"温度参数: {self.config.temperature}")
         try:
             image_paths = []
             pdf_path = None
@@ -729,17 +730,12 @@ class OcrWorker(QThread):
             self.log_and_emit('info', f"待处理项目数量 - 图片: {len(image_paths)}, PDF: {'是' if pdf_path else '否'}")
             self.log_and_emit('info', f"提示词长度: {len(self.prompt_text)} 字符")
             
-            ocr_result = process_images_with_model(
+            from core.ocr import process_images_with_config
+            ocr_result = process_images_with_config(
                 image_paths=image_paths,
                 pdf_path=pdf_path, # 使用正确的PDF路径
-                api_provider=self.api_provider,
-                api_key=self.api_key,
-                api_base_url=self.api_base_url,
-                model_name=self.model_name,
-                prompt_text=self.prompt_text,
+                config=self.config,
                 logger=self.core_logger,  # 传递专门的核心logger
-                temperature=self.temperature,  # 传递温度参数
-                save_mode=self.save_mode,  # 传递保存模式参数
                 progress_callback=progress_callback
             )
 
@@ -749,7 +745,7 @@ class OcrWorker(QThread):
             # 3. 处理结果
             self.total_progress.emit(100)
             ocr_result['logger'] = self.logger
-            ocr_result['model_name'] = self.model_name
+            ocr_result['model_name'] = self.config.model_name
             
             # 记录结果详情
             if ocr_result.get("success"):
@@ -1168,6 +1164,13 @@ class MainWindow(QMainWindow):
         if os.path.exists(style_path):
             with open(style_path, "r", encoding="utf-8") as f:
                 self.setStyleSheet(f.read())
+                
+    def show_config_manager_dialog(self):
+        """显示配置管理对话框"""
+        from .config_manager_dialog import ConfigManagerDialog
+        dialog = ConfigManagerDialog(self)
+        dialog.config_changed.connect(self._on_ocr_config_changed)
+        dialog.exec()
 
     def check_ghostscript(self):
         self.gs_installed = is_ghostscript_installed()
@@ -1907,6 +1910,13 @@ class MainWindow(QMainWindow):
             CustomMessageBox.warning(self, "警告", "请先选择一个PDF文件进行OCR识别。")
             return
 
+        # 获取默认配置
+        default_config = get_default_config()
+        if not default_config:
+            CustomMessageBox.warning(self, "警告", "未找到默认配置，请先在配置管理中设置默认配置。")
+            self._open_ocr_config_dialog()  # 引导用户去配置
+            return
+
         # 检查 Pandoc 是否安装，并引导用户
         if not self.pandoc_installed:
             reply = CustomMessageBox.question(
@@ -1921,24 +1931,6 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.StandardButton.No:
                 return
             
-        # 从 .env 文件重新加载配置
-        if os.path.exists(self.env_path):
-            dotenv.load_dotenv(dotenv_path=self.env_path, override=True)
-            
-        api_provider = os.getenv("OCR_API_PROVIDER", "OpenAI-Compatible")
-
-        if api_provider == "Mistral API":
-            api_key = os.getenv("MISTRAL_API_KEY", "")
-            model_name = os.getenv("MISTRAL_MODEL_NAME", "mistral-ocr-latest")
-        else:
-            api_key = os.getenv("OPENAI_API_KEY", "")
-            model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-4o")
-
-        if not api_key:
-            CustomMessageBox.warning(self, "警告", f"请在配置对话框中为 {api_provider} 设置API Key。")
-            self._open_ocr_config_dialog() # 引导用户去配置
-            return
-            
         self._reset_ocr_ui()
         # 清空预览内容
         if hasattr(self, 'ocr_worker'):
@@ -1952,24 +1944,11 @@ class MainWindow(QMainWindow):
             self._update_controls_state(is_task_running=False)
             return
         
-        # 从环境变量获取配置
-        api_base_url = os.getenv("OCR_API_BASE_URL", "https://api.openai.com/v1")
-        prompt_text = os.getenv("OCR_PROMPT", "这是一个PDF页面。请准确识别所有内容，并将其转换为结构良好的Markdown格式。")
-        # 获取温度参数，默认值为1.0
-        temperature = float(os.getenv("OCR_TEMPERATURE", "1.0"))
-        # 获取保存模式配置
-        save_mode = os.getenv("OCR_SAVE_MODE", "per_page")
-        
+        # 使用新配置系统创建工作线程
         self.ocr_worker = OcrWorker(
             file_path=file_path_data,
-            api_key=api_key,
-            model_name=model_name,
-            api_base_url=api_base_url,
-            prompt_text=prompt_text,
-            temp_dir=self.temp_dir,
-            api_provider=api_provider,
-            temperature=temperature,  # 传递温度参数
-            save_mode=save_mode  # 传递保存模式参数
+            config=default_config,
+            temp_dir=self.temp_dir
         )
         self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
@@ -1978,7 +1957,7 @@ class MainWindow(QMainWindow):
         self.ocr_worker.ocr_finished.connect(self.on_ocr_finished)
         self.ocr_worker.finished.connect(lambda: self._update_controls_state(is_task_running=False))
         self.ocr_worker.start()
-        self.status_label.setText(f"正在使用 {api_provider} - {model_name} 进行OCR识别...")
+        self.status_label.setText(f"正在使用 {default_config.name} ({default_config.provider}) 进行OCR识别...")
 
     def on_ocr_finished(self, result):
         logger = result.get("logger", logging.getLogger(__name__))
@@ -2094,12 +2073,19 @@ class MainWindow(QMainWindow):
     
     def _open_ocr_config_dialog(self):
         """打开OCR配置对话框"""
-        # 导入配置对话框类
-        from .ocr_config_dialog import OcrConfigDialog
-
-        # 创建并显示对话框
-        dialog = OcrConfigDialog(self)
+        # 创建并显示新的配置管理对话框
+        dialog = ConfigManagerDialog(self)
+        dialog.config_changed.connect(self._on_ocr_config_changed)
         dialog.exec()  # 使用 exec() 以模态方式运行对话框
+    
+    def _on_ocr_config_changed(self):
+        """配置变更时的回调"""
+        # 更新状态显示
+        default_config = get_default_config()
+        if default_config:
+            self.status_label.setText(f"当前配置: {default_config.name} ({default_config.provider})")
+        else:
+            self.status_label.setText("未设置默认配置")
 
 
 class AddBookmarkWorker(QThread):
