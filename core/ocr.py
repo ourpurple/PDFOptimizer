@@ -1,5 +1,6 @@
 import base64
 import httpx
+import json
 import os
 import re
 import time
@@ -106,8 +107,9 @@ def _process_with_openai_compatible(
                     ]
                 }
             ],
-"temperature": temperature,  # 添加温度参数
-            "max_tokens": 4096
+            "temperature": temperature,  # 添加温度参数
+            "max_tokens": 4096,
+            "stream": True  # 启用流式输出
         }
         
         page_content = ""
@@ -120,43 +122,79 @@ def _process_with_openai_compatible(
                 raise InterruptedError("OCR task was stopped.")
             
             try:
-                logger.info(f"页面 {i+1}: 第 {attempt + 1} 次尝试调用API...")
+                logger.info(f"页面 {i+1}: 第 {attempt + 1} 次尝试调用API (流式模式)...")
+                page_content = ""  # 每次重试时重置内容
+                
                 with httpx.Client(timeout=timeout) as client:
-                    response = client.post(
+                    with client.stream(
+                        "POST",
                         f"{api_base_url}/chat/completions",
                         headers={
                             "Content-Type": "application/json",
                             "Authorization": f"Bearer {api_key}"
                         },
                         json=payload
-                    )
-                    response.raise_for_status()
-                    
-                response_data = response.json()
-                if "choices" not in response_data or not response_data["choices"]:
-                    raise ValueError("API响应中缺少有效的 'choices' 字段")
-                
-                # 健壮地获取 content
-                # 正确地从 'choices' 列表中获取第一个元素
-                first_choice = response_data["choices"][0]  # 修复：获取列表的第一个元素
-                message = first_choice.get("message", {})
-                page_content = message.get("content", "")
+                    ) as response:
+                        response.raise_for_status()
+                        
+                        for line in response.iter_lines():
+                            if not check_running():
+                                raise InterruptedError("OCR task was stopped.")
+                            
+                            if not line or line.strip() == "":
+                                continue
+                            
+                            # 处理 SSE 格式的数据
+                            line_str = line.strip()
+                            
+                            # 支持带或不带 "data: " 前缀的格式
+                            if line_str.startswith("data:"):
+                                data_str = line_str[5:].strip()  # 移除 "data:" 前缀
+                            else:
+                                data_str = line_str
+                            
+                            if data_str == "[DONE]":
+                                logger.info(f"页面 {i+1}: 收到流式结束标记 [DONE]")
+                                break
+                            
+                            if not data_str:
+                                continue
+                            
+                            try:
+                                chunk_data = json.loads(data_str)
+                                
+                                # 从流式响应中提取内容
+                                if "choices" in chunk_data and chunk_data["choices"]:
+                                    delta = chunk_data["choices"][0].get("delta", {})
+                                    content_chunk = delta.get("content", "")
+                                    
+                                    if content_chunk:
+                                        page_content += content_chunk
+                                        
+                                        # 调用进度回调，实时更新流式内容
+                                        if progress_callback:
+                                            progress_callback(i + 1, total_images, "流式输出中", page_content)
+                            
+                            except json.JSONDecodeError as je:
+                                # 记录无法解析的行，便于调试
+                                logger.debug(f"页面 {i+1}: 无法解析的流式数据: {data_str[:100]}...")
+                                continue
 
-                if not page_content:
-                    logger.warning(f"页面 {i+1}: API返回了空的内容。")
-                    # 如果内容为空，继续重试而不是标记为成功
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay)
-                        continue
-                else:
+                # 流式响应结束后检查内容
+                if page_content:
                     logger.info(f"页面 {i+1}: 第 {attempt + 1} 次尝试成功，内容长度: {len(page_content)} 字符。")
                     if progress_callback:
                         progress_callback(i + 1, total_images, "成功", page_content)
                     api_success = True
                     break
-                    
-                # 如果到达这里，说明内容为空且已达到最大重试次数
-                logger.warning(f"页面 {i+1}: API返回空内容，已达到最大重试次数 {max_retries}。")
+                else:
+                    logger.warning(f"页面 {i+1}: API返回了空的内容 (尝试 {attempt + 1}/{max_retries})。")
+                    # 如果内容为空，继续重试
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.warning(f"页面 {i+1}: API返回空内容，已达到最大重试次数 {max_retries}。")
                 
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 error_message = f"API请求失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"

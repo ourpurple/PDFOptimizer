@@ -910,6 +910,30 @@ class MainWindow(QMainWindow):
         scrollbar = self.ocr_log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
     
+    def _update_preview_with_scroll(self, content):
+        """更新OCR预览内容并自动滚动到底部（带节流）"""
+        import time
+        current_time = time.time()
+        
+        # 节流：至少间隔100ms才更新一次UI，或者内容长度变化超过50字符
+        if not hasattr(self, '_last_preview_update_time'):
+            self._last_preview_update_time = 0
+            self._last_preview_content_len = 0
+        
+        content_len = len(content)
+        time_diff = current_time - self._last_preview_update_time
+        content_diff = content_len - self._last_preview_content_len
+        
+        # 每100ms更新一次，或者内容增加超过50字符时更新
+        if time_diff >= 0.1 or content_diff >= 50:
+            self.ocr_result_text.setPlainText(content)
+            # 自动滚动到底部
+            scrollbar = self.ocr_result_text.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+            
+            self._last_preview_update_time = current_time
+            self._last_preview_content_len = content_len
+    
     def _reset_ocr_ui(self):
         self.ocr_progress_bar.setValue(0)
         self.ocr_result_text.clear()
@@ -1952,7 +1976,7 @@ class MainWindow(QMainWindow):
         )
         self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
-        self.ocr_worker.preview_updated.connect(self.ocr_result_text.setPlainText)  # 连接预览更新信号
+        self.ocr_worker.preview_updated.connect(self._update_preview_with_scroll)  # 连接预览更新信号
         self.ocr_worker.log_message.connect(self._append_log_with_scroll)  # 连接日志信号到日志显示区域
         self.ocr_worker.ocr_finished.connect(self.on_ocr_finished)
         self.ocr_worker.finished.connect(lambda: self._update_controls_state(is_task_running=False))
