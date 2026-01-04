@@ -833,6 +833,7 @@ class MainWindow(QMainWindow):
 
         status_layout.addSpacing(20)
         self.about_button = QPushButton("关于")
+        self.about_button.setObjectName("about_button")
         self.about_button.clicked.connect(self.show_about_dialog)
         status_layout.addWidget(self.about_button)
         main_layout.addLayout(status_layout)
@@ -1159,17 +1160,17 @@ class MainWindow(QMainWindow):
         self._update_controls_state()
     def show_about_dialog(self):
         about_text = f"""
-<div style='color:#333333;'>
+<div style='color:#1e293b;'>
     <p style='font-size:14pt; font-weight:bold; text-align:center;'>PDF Optimizer</p>
-    <p style='font-size:10pt; text-align:center;'>一个功能强大的PDF处理工具</p>
-    <hr>
+    <p style='font-size:10pt; text-align:center; color:#64748b;'>一个功能强大的PDF处理工具</p>
+    <hr style='border-color:#e2e8f0;'>
     <p style='font-size:10pt;'><b>版本:</b> {self.app_version}</p>
     <p style='font-size:10pt;'><b>作者:</b> WanderInDoor</p>
     <p style='font-size:10pt;'><b>联系方式:</b> 76757488@qq.com</p>
-    <p style='font-size:10pt;'><b>源代码:</b> <a href="https://github.com/ourpurple/PDFOptimizer">https://github.com/ourpurple/PDFOptimizer</a></p>
-    <hr>
+    <p style='font-size:10pt;'><b>源代码:</b> <a href="https://github.com/ourpurple/PDFOptimizer" style="color:#3b82f6;">https://github.com/ourpurple/PDFOptimizer</a></p>
+    <hr style='border-color:#e2e8f0;'>
     <p style='font-size:10pt;'><b>主要功能:</b></p>
-    <ul style='font-size:9pt;'>
+    <ul style='font-size:9pt; color:#475569;'>
         <li>PDF优化（压缩）</li>
         <li>PDF合并与分割</li>
         <li>PDF转图片</li>
@@ -1177,8 +1178,8 @@ class MainWindow(QMainWindow):
         <li>PDF书签管理</li>
         <li>PDF OCR识别（支持AI模型）</li>
     </ul>
-    <hr>
-    <p style='font-size:8pt; color:grey;'>基于 PySide6, Pikepdf, PyMuPDF 和 Ghostscript 构建</p>
+    <hr style='border-color:#e2e8f0;'>
+    <p style='font-size:8pt; color:#94a3b8;'>基于 PySide6, Pikepdf, PyMuPDF 和 Ghostscript 构建</p>
 </div>
 """
         CustomMessageBox.about(self, "关于 PDF Optimizer", about_text)
@@ -1863,22 +1864,10 @@ class MainWindow(QMainWindow):
         
         # 日志显示区域
         self.ocr_log_text = QTextEdit()
+        self.ocr_log_text.setObjectName("ocr_log_text")
         self.ocr_log_text.setReadOnly(True)
         self.ocr_log_text.setPlaceholderText("OCR识别日志将显示在这里...")
-        
-        # 设置日志区域样式
-        self.ocr_log_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 11px;
-                line-height: 1.4;
-                padding: 8px;
-            }
-        """)
-        
+
         result_splitter.addWidget(self.ocr_log_text)
         
         # 创建并配置日志处理器

@@ -23,25 +23,29 @@ class CustomMessageBox(QMessageBox):
 
         self.setStyleSheet("""
             QMessageBox {
-                background-color: #FFFAF0; /* FloralWhite */
+                background-color: #d5dbe4;
             }
             QLabel {
-                color: #5C4033; /* Dark Brown */
+                color: #1e293b;
                 font-size: 11pt;
             }
             QPushButton {
-                background-color: #CD853F; /* Peru */
-                color: white;
-                border: 1px solid #A0522D; /* Sienna */
-                padding: 8px 15px;
-                border-radius: 4px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 #3b82f6, stop:1 #2563eb);
+                color: #ffffff;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
                 min-width: 80px;
+                font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #D2B48C; /* Tan */
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 #60a5fa, stop:1 #3b82f6);
             }
             QPushButton:pressed {
-                background-color: #A0522D; /* Sienna */
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 #2563eb, stop:1 #1d4ed8);
             }
         """)
 
@@ -97,7 +101,7 @@ class BookmarkEditDialog(QDialog):
         
         # 添加提示标签
         tip_label = QLabel("提示：页码必须为数字，书签内容不能为空")
-        tip_label.setStyleSheet("color: #666666; font-size: 10pt;")
+        tip_label.setStyleSheet("color: #64748b; font-size: 10pt;")
         layout.addWidget(tip_label)
         
         self.table = QTableWidget()
