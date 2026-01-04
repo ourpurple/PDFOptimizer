@@ -36,11 +36,6 @@ jobs:
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Create ZIP archive
-        shell: pwsh
-        run: |
-          Compress-Archive -Path dist/PDFOptimizer/* -DestinationPath PDFOptimizer-${{ steps.get_version.outputs.VERSION }}-windows.zip
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -49,4 +44,4 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            PDFOptimizer-${{ steps.get_version.outputs.VERSION }}-windows.zip
+            dist/PDFOptimizer.exe
