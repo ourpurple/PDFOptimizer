@@ -1,11 +1,43 @@
-dist/main.build
-dist/main.dist
-build/
-pdfoptimizer.egg-info/
-ui/__pycache__/
-ui/tabs
-main.build/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
 
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Build artifacts
+build/
+dist/
+*.exe
+*.build/
+*.dist/
+*.spec.bak
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Logs
 *.log
-.vscode/settings.json
-*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
