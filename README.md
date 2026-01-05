@@ -217,6 +217,27 @@ PDFOptimizer/
 
 查看 [CHANGELOG.md](CHANGELOG.md) 了解详细的版本更新信息。
 
+## 📦 发布新版本
+
+项目使用 GitHub Actions 自动构建和发布。当推送版本 tag 时，会自动构建 Windows 可执行文件并创建 Release。
+
+### 发布步骤
+
+1. 更新版本号（`core/version.py`）
+2. 更新 CHANGELOG.md
+3. 提交更改并推送 tag：
+
+```bash
+git add .
+git commit -m "Release vX.X.X"
+git tag vX.X.X
+git push origin main --tags
+```
+
+GitHub Actions 会自动：
+- 在 Windows 环境下构建可执行文件
+- 创建 Release 并上传 `PDFOptimizer.exe`
+
 ## 🤝 贡献指南
 
 欢迎提交Issue和Pull Request！在贡献代码前，请：
