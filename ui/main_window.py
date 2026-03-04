@@ -4,10 +4,10 @@ from PySide6.QtWidgets import (
     QLabel, QFileDialog, QTableWidget, QProgressBar, QHBoxLayout,
     QComboBox, QHeaderView, QTableWidgetItem, QMessageBox, QAbstractItemView,
     QTabWidget, QMenu, QCheckBox, QDialog, QLineEdit, QTextEdit, QFormLayout,
-    QSplitter
+    QSplitter, QStackedWidget, QGraphicsOpacityEffect
 )
-from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl, QMetaObject
-from PySide6.QtGui import QDropEvent, QIcon, QDesktopServices
+from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl, QMetaObject, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QDropEvent, QIcon, QDesktopServices, QColor
 import os
 import re
 import time
@@ -65,6 +65,7 @@ class SortableTableWidget(QTableWidget):
     """
     def __init__(self):
         super().__init__()
+        self.verticalHeader().setVisible(False)
         self.setAcceptDrops(True)
         self.setDragEnabled(True)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -311,6 +312,33 @@ def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
+
+
+class AnimatedProgressBar(QProgressBar):
+    """带平滑动画的进度条"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._animation = QPropertyAnimation(self, b"value")
+        self._animation.setDuration(300)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def setAnimatedValue(self, value):
+        """使用动画平滑过渡到目标值"""
+        self._animation.stop()
+        self._animation.setStartValue(self.value())
+        self._animation.setEndValue(value)
+        self._animation.start()
+
+
+def _create_empty_state_hint(text="拖拽PDF文件到此处，或点击上方按钮选择文件"):
+    """创建空状态提示标签"""
+    hint = QLabel(text)
+    hint.setObjectName("empty_state_hint")
+    hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    hint.setWordWrap(True)
+    return hint
+
 
 class BaseWorker(QThread):
     """基础工作线程类"""
@@ -821,14 +849,18 @@ class MainWindow(QMainWindow):
         self._setup_tab_connections()
         main_layout.addWidget(self.tab_widget)
         status_layout = QHBoxLayout()
+        status_layout.setContentsMargins(8, 6, 8, 6)
         self.status_label = QLabel("请先选择文件...")
+        self.status_label.setStyleSheet("padding-left: 4px;")
         status_layout.addWidget(self.status_label)
         status_layout.addStretch()
 
         self.gs_status_label = QLabel()
+        self.gs_status_label.setObjectName("gs_status_label")
         status_layout.addWidget(self.gs_status_label)
-        
+
         self.pandoc_status_label = QLabel()
+        self.pandoc_status_label.setObjectName("pandoc_status_label")
         status_layout.addWidget(self.pandoc_status_label)
 
         status_layout.addSpacing(20)
@@ -942,6 +974,22 @@ class MainWindow(QMainWindow):
         if self.ocr_table.rowCount() > 0:
             self.ocr_table.setItem(0, 1, QTableWidgetItem("排队中..."))
  
+    def _update_empty_state_hints(self):
+        """根据各表格的行数切换空状态提示和表格的显示"""
+        stack_map = {
+            'optimize_stack': self.file_table,
+            'merge_stack': self.merge_table,
+            'curves_stack': self.curves_table,
+            'pdf_to_image_stack': self.pdf_to_image_table,
+            'split_stack': self.split_table,
+            'bookmark_stack': self.bookmark_file_table,
+        }
+        for stack_name, table in stack_map.items():
+            stack = getattr(self, stack_name, None)
+            if stack:
+                # index 0 = empty hint, index 1 = table
+                stack.setCurrentIndex(1 if table.rowCount() > 0 else 0)
+
     def _update_controls_state(self, is_task_running=False):
         enable_when_not_running = not is_task_running
         
@@ -992,6 +1040,7 @@ class MainWindow(QMainWindow):
         self.ocr_start_button.setEnabled(enable_when_not_running and ocr_files_exist)
         self.ocr_stop_button.setEnabled(is_task_running)
         self.ocr_clear_button.setEnabled(enable_when_not_running and ocr_files_exist)
+        self._update_empty_state_hints()
     def start_optimization(self):
         if self.file_table.rowCount() == 0:
             CustomMessageBox.warning(self, "警告", "请先选择要优化的PDF文件。")
@@ -1003,7 +1052,7 @@ class MainWindow(QMainWindow):
         quality = self.quality_combo.currentText()
         engine = self.engine_combo.currentText()
         self.optimize_worker = OptimizeWorker(files, quality, engine)
-        self.optimize_worker.total_progress.connect(self.progress_bar.setValue)
+        self.optimize_worker.total_progress.connect(self.progress_bar.setAnimatedValue)
         self.optimize_worker.file_finished.connect(self.on_optimize_file_finished)
         self.optimize_worker.finished.connect(self.on_optimize_all_finished)
         self.optimize_worker.start()
@@ -1016,7 +1065,7 @@ class MainWindow(QMainWindow):
         self._update_controls_state(is_task_running=True)
         files = [self.curves_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.curves_table.rowCount())]
         self.curves_worker = CurvesWorker(files)
-        self.curves_worker.total_progress.connect(self.curves_progress_bar.setValue)
+        self.curves_worker.total_progress.connect(self.curves_progress_bar.setAnimatedValue)
         self.curves_worker.file_finished.connect(self.on_curves_file_finished)
         self.curves_worker.finished.connect(self.on_curves_all_finished)
         self.curves_worker.start()
@@ -1034,7 +1083,7 @@ class MainWindow(QMainWindow):
         image_format = self.image_format_combo.currentText().lower()
         dpi = int(self.dpi_combo.currentText())
         self.pdf_to_image_worker = PdfToImageWorker(files, output_dir, image_format, dpi)
-        self.pdf_to_image_worker.total_progress.connect(self.pdf_to_image_progress_bar.setValue)
+        self.pdf_to_image_worker.total_progress.connect(self.pdf_to_image_progress_bar.setAnimatedValue)
         self.pdf_to_image_worker.progress_updated.connect(self.on_pdf_to_image_progress)
         self.pdf_to_image_worker.file_finished.connect(self.on_pdf_to_image_file_finished)
         self.pdf_to_image_worker.finished.connect(self.on_pdf_to_image_all_finished)
@@ -1051,7 +1100,7 @@ class MainWindow(QMainWindow):
         self._update_controls_state(is_task_running=True)
         files = [self.split_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.split_table.rowCount())]
         self.split_worker = SplitWorker(files, output_dir)
-        self.split_worker.total_progress.connect(self.split_progress_bar.setValue)
+        self.split_worker.total_progress.connect(self.split_progress_bar.setAnimatedValue)
         self.split_worker.progress_updated.connect(self.on_split_progress)
         self.split_worker.file_finished.connect(self.on_split_file_finished)
         self.split_worker.finished.connect(self.on_split_all_finished)
@@ -1394,7 +1443,7 @@ class MainWindow(QMainWindow):
         
         engine = self.merge_engine_combo.currentText()
         self.merge_worker = MergeWorker(files, output_path, engine)
-        self.merge_worker.total_progress.connect(self.merge_progress_bar.setValue)
+        self.merge_worker.total_progress.connect(self.merge_progress_bar.setAnimatedValue)
         self.merge_worker.file_finished.connect(self.on_merge_file_finished)
         self.merge_worker.finished.connect(self.on_merge_all_finished)
         self.merge_worker.start()
@@ -1412,23 +1461,32 @@ class MainWindow(QMainWindow):
             CustomMessageBox.warning(self, "合并失败", f"合并失败：\n{error_message}")
     def _setup_optimize_tab(self):
         optimize_layout = QVBoxLayout(self.optimize_tab)
+        optimize_layout.setContentsMargins(16, 16, 16, 12)
+        optimize_layout.setSpacing(12)
         file_select_layout = QHBoxLayout()
         self.select_button = QPushButton("选择PDF文件")
         self.select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.select_button)
         file_select_layout.addStretch()
         optimize_layout.addLayout(file_select_layout)
+        # 文件表格 + 空状态提示
+        self.optimize_empty_hint = _create_empty_state_hint()
         self.file_table = SortableTableWidget()
         self.file_table.setColumnCount(5)
         self.file_table.setHorizontalHeaderLabels(["文件名", "原始大小", "优化后大小", "压缩率", "状态"])
         self.file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        optimize_layout.addWidget(self.file_table)
-        self.progress_bar = QProgressBar()
+        optimize_stack = QStackedWidget()
+        optimize_stack.addWidget(self.optimize_empty_hint)
+        optimize_stack.addWidget(self.file_table)
+        self.optimize_stack = optimize_stack
+        optimize_layout.addWidget(optimize_stack)
+        self.progress_bar = AnimatedProgressBar()
         self.progress_bar.setAlignment(Qt.AlignCenter)
         optimize_layout.addWidget(self.progress_bar)
         controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
         quality_label = QLabel("质量:")
         controls_layout.addWidget(quality_label)
         self.quality_combo = QComboBox()
@@ -1450,28 +1508,36 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("停止")
         self.stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.stop_button)
-        
+
         optimize_layout.addLayout(controls_layout)
     def _setup_merge_tab(self):
         merge_layout = QVBoxLayout(self.merge_tab)
+        merge_layout.setContentsMargins(16, 16, 16, 12)
+        merge_layout.setSpacing(12)
         file_select_layout = QHBoxLayout()
         self.merge_select_button = QPushButton("选择PDF文件")
         self.merge_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.merge_select_button)
         file_select_layout.addStretch()
         merge_layout.addLayout(file_select_layout)
+        self.merge_empty_hint = _create_empty_state_hint()
         self.merge_table = SortableTableWidget()
         self.merge_table.setColumnCount(2)
         self.merge_table.setHorizontalHeaderLabels(["文件名", "状态"])
         self.merge_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.merge_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.merge_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        merge_layout.addWidget(self.merge_table)
-        self.merge_progress_bar = QProgressBar()
+        merge_stack = QStackedWidget()
+        merge_stack.addWidget(self.merge_empty_hint)
+        merge_stack.addWidget(self.merge_table)
+        self.merge_stack = merge_stack
+        merge_layout.addWidget(merge_stack)
+        self.merge_progress_bar = AnimatedProgressBar()
         self.merge_progress_bar.setAlignment(Qt.AlignCenter)
         merge_layout.addWidget(self.merge_progress_bar)
         controls_layout = QHBoxLayout()
-        
+        controls_layout.setSpacing(8)
+
         merge_engine_label = QLabel("引擎:")
         controls_layout.addWidget(merge_engine_label)
         self.merge_engine_combo = QComboBox()
@@ -1488,27 +1554,35 @@ class MainWindow(QMainWindow):
         self.merge_stop_button = QPushButton("停止")
         self.merge_stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.merge_stop_button)
-        
+
         merge_layout.addLayout(controls_layout)
     def _setup_curves_tab(self):
         curves_layout = QVBoxLayout(self.curves_tab)
+        curves_layout.setContentsMargins(16, 16, 16, 12)
+        curves_layout.setSpacing(12)
         file_select_layout = QHBoxLayout()
         self.curves_select_button = QPushButton("选择PDF文件")
         self.curves_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.curves_select_button)
         file_select_layout.addStretch()
         curves_layout.addLayout(file_select_layout)
+        self.curves_empty_hint = _create_empty_state_hint()
         self.curves_table = SortableTableWidget()
         self.curves_table.setColumnCount(3)
         self.curves_table.setHorizontalHeaderLabels(["文件名", "原始大小", "状态"])
         self.curves_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.curves_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.curves_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        curves_layout.addWidget(self.curves_table)
-        self.curves_progress_bar = QProgressBar()
+        curves_stack = QStackedWidget()
+        curves_stack.addWidget(self.curves_empty_hint)
+        curves_stack.addWidget(self.curves_table)
+        self.curves_stack = curves_stack
+        curves_layout.addWidget(curves_stack)
+        self.curves_progress_bar = AnimatedProgressBar()
         self.curves_progress_bar.setAlignment(Qt.AlignCenter)
         curves_layout.addWidget(self.curves_progress_bar)
         controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
         controls_layout.addStretch()
         self.curves_clear_button = QPushButton("清空列表")
         self.curves_clear_button.clicked.connect(self.clear_current_list)
@@ -1523,23 +1597,31 @@ class MainWindow(QMainWindow):
         curves_layout.addLayout(controls_layout)
     def _setup_pdf_to_image_tab(self):
         pdf_to_image_layout = QVBoxLayout(self.pdf_to_image_tab)
+        pdf_to_image_layout.setContentsMargins(16, 16, 16, 12)
+        pdf_to_image_layout.setSpacing(12)
         file_select_layout = QHBoxLayout()
         self.pdf_to_image_select_button = QPushButton("选择PDF文件")
         self.pdf_to_image_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.pdf_to_image_select_button)
         file_select_layout.addStretch()
         pdf_to_image_layout.addLayout(file_select_layout)
+        self.pdf_to_image_empty_hint = _create_empty_state_hint()
         self.pdf_to_image_table = SortableTableWidget()
         self.pdf_to_image_table.setColumnCount(2)
         self.pdf_to_image_table.setHorizontalHeaderLabels(["文件名", "状态"])
         self.pdf_to_image_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.pdf_to_image_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.pdf_to_image_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        pdf_to_image_layout.addWidget(self.pdf_to_image_table)
-        self.pdf_to_image_progress_bar = QProgressBar()
+        pdf_to_image_stack = QStackedWidget()
+        pdf_to_image_stack.addWidget(self.pdf_to_image_empty_hint)
+        pdf_to_image_stack.addWidget(self.pdf_to_image_table)
+        self.pdf_to_image_stack = pdf_to_image_stack
+        pdf_to_image_layout.addWidget(pdf_to_image_stack)
+        self.pdf_to_image_progress_bar = AnimatedProgressBar()
         self.pdf_to_image_progress_bar.setAlignment(Qt.AlignCenter)
         pdf_to_image_layout.addWidget(self.pdf_to_image_progress_bar)
         controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
         image_format_label = QLabel("图片格式:")
         controls_layout.addWidget(image_format_label)
         self.image_format_combo = QComboBox()
@@ -1561,27 +1643,35 @@ class MainWindow(QMainWindow):
         self.pdf_to_image_stop_button = QPushButton("停止")
         self.pdf_to_image_stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.pdf_to_image_stop_button)
-        
+
         pdf_to_image_layout.addLayout(controls_layout)
     def _setup_split_tab(self):
         split_layout = QVBoxLayout(self.split_tab)
+        split_layout.setContentsMargins(16, 16, 16, 12)
+        split_layout.setSpacing(12)
         file_select_layout = QHBoxLayout()
         self.split_select_button = QPushButton("选择PDF文件")
         self.split_select_button.clicked.connect(self.select_files)
         file_select_layout.addWidget(self.split_select_button)
         file_select_layout.addStretch()
         split_layout.addLayout(file_select_layout)
+        self.split_empty_hint = _create_empty_state_hint()
         self.split_table = SortableTableWidget()
         self.split_table.setColumnCount(2)
         self.split_table.setHorizontalHeaderLabels(["文件名", "状态"])
         self.split_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.split_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.split_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        split_layout.addWidget(self.split_table)
-        self.split_progress_bar = QProgressBar()
+        split_stack = QStackedWidget()
+        split_stack.addWidget(self.split_empty_hint)
+        split_stack.addWidget(self.split_table)
+        self.split_stack = split_stack
+        split_layout.addWidget(split_stack)
+        self.split_progress_bar = AnimatedProgressBar()
         self.split_progress_bar.setAlignment(Qt.AlignCenter)
         split_layout.addWidget(self.split_progress_bar)
         controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
         controls_layout.addStretch()
         self.split_clear_button = QPushButton("清空列表")
         self.split_clear_button.clicked.connect(self.clear_current_list)
@@ -1592,10 +1682,12 @@ class MainWindow(QMainWindow):
         self.split_stop_button = QPushButton("停止")
         self.split_stop_button.clicked.connect(self.stop_current_task)
         controls_layout.addWidget(self.split_stop_button)
-        
+
         split_layout.addLayout(controls_layout)
     def _setup_bookmark_tab(self):
         layout = QVBoxLayout(self.bookmark_tab)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(12)
         # 文件选择区
         file_select_layout = QHBoxLayout()
         self.bookmark_select_button = QPushButton("选择PDF文件")
@@ -1603,14 +1695,19 @@ class MainWindow(QMainWindow):
         file_select_layout.addWidget(self.bookmark_select_button)
         file_select_layout.addStretch()
         layout.addLayout(file_select_layout)
-        # 文件列表表格
+        # 文件列表表格 + 空状态提示
+        self.bookmark_empty_hint = _create_empty_state_hint()
         self.bookmark_file_table = SortableTableWidget()
         self.bookmark_file_table.setColumnCount(3)
         self.bookmark_file_table.setHorizontalHeaderLabels(["文件名", "书签数", "操作"])
         self.bookmark_file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.bookmark_file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.bookmark_file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        layout.addWidget(self.bookmark_file_table)
+        bookmark_stack = QStackedWidget()
+        bookmark_stack.addWidget(self.bookmark_empty_hint)
+        bookmark_stack.addWidget(self.bookmark_file_table)
+        self.bookmark_stack = bookmark_stack
+        layout.addWidget(bookmark_stack)
         # 共用书签模式切换
         mode_layout = QHBoxLayout()
         self.use_common_bookmarks_checkbox = QCheckBox("为所有文件添加同一组书签")
@@ -1640,7 +1737,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(bookmark_ctrl_layout)
         # 进度条和开始按钮
         progress_layout = QHBoxLayout()
-        self.bookmark_progress_bar = QProgressBar()
+        self.bookmark_progress_bar = AnimatedProgressBar()
         self.bookmark_progress_bar.setAlignment(Qt.AlignCenter)
         progress_layout.addWidget(self.bookmark_progress_bar)
         
@@ -1824,7 +1921,9 @@ class MainWindow(QMainWindow):
         self._update_controls_state()
     def _setup_ocr_tab(self):
         ocr_layout = QVBoxLayout(self.ocr_tab)
-        
+        ocr_layout.setContentsMargins(16, 16, 16, 12)
+        ocr_layout.setSpacing(12)
+
         # --- Top Controls ---
         top_controls_layout = QHBoxLayout()
         self.ocr_select_button = QPushButton("选择PDF文件或图片 (仅限单个)")
@@ -1893,7 +1992,7 @@ class MainWindow(QMainWindow):
         ocr_layout.addWidget(main_splitter)
         
         # --- Progress Bar and Bottom Controls ---
-        self.ocr_progress_bar = QProgressBar()
+        self.ocr_progress_bar = AnimatedProgressBar()
         self.ocr_progress_bar.setAlignment(Qt.AlignCenter)
         ocr_layout.addWidget(self.ocr_progress_bar)
         
@@ -1963,7 +2062,7 @@ class MainWindow(QMainWindow):
             config=default_config,
             temp_dir=self.temp_dir
         )
-        self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setValue)
+        self.ocr_worker.total_progress.connect(self.ocr_progress_bar.setAnimatedValue)
         self.ocr_worker.ocr_progress.connect(lambda msg: self.ocr_table.setItem(0, 1, QTableWidgetItem(msg)))
         self.ocr_worker.preview_updated.connect(self._update_preview_with_scroll)  # 连接预览更新信号
         self.ocr_worker.log_message.connect(self._append_log_with_scroll)  # 连接日志信号到日志显示区域

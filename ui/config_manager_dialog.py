@@ -112,12 +112,13 @@ class ConfigManagerDialog(QDialog):
     def _create_config_list(self, parent):
         """创建配置列表"""
         left_widget = QFrame()
+        left_widget.setMinimumWidth(320)
         left_layout = QVBoxLayout()
         
         # 标题和工具按钮
         header_layout = QHBoxLayout()
         header_label = QLabel("配置列表")
-        header_label.setFont(QFont("", 10, QFont.Bold))
+        header_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
         header_layout.addWidget(header_label)
         
         header_layout.addStretch()
@@ -144,7 +145,9 @@ class ConfigManagerDialog(QDialog):
         self.config_table.setSelectionMode(QTableWidget.SingleSelection)
         self.config_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.config_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.config_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.config_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        self.config_table.horizontalHeader().resizeSection(2, 50)
+        self.config_table.verticalHeader().setVisible(False)
         self.config_table.itemSelectionChanged.connect(self._on_config_selected)
         self.config_table.itemDoubleClicked.connect(self._edit_config)
         
@@ -169,7 +172,17 @@ class ConfigManagerDialog(QDialog):
         quick_layout.addWidget(self.test_btn)
         
         left_layout.addLayout(quick_layout)
-        
+
+        # 测试结果区域
+        self.test_progress = QProgressBar()
+        self.test_progress.setVisible(False)
+        left_layout.addWidget(self.test_progress)
+
+        self.test_result_label = QLabel("点击\"测试连接\"按钮测试API配置")
+        self.test_result_label.setWordWrap(True)
+        self.test_result_label.setAlignment(Qt.AlignRight)
+        left_layout.addWidget(self.test_result_label)
+
         left_widget.setLayout(left_layout)
         parent.addWidget(left_widget)
     
@@ -180,7 +193,7 @@ class ConfigManagerDialog(QDialog):
         
         # 标题
         title_label = QLabel("配置编辑")
-        title_label.setFont(QFont("", 10, QFont.Bold))
+        title_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
         right_layout.addWidget(title_label)
         
         # 配置表单
@@ -246,23 +259,8 @@ class ConfigManagerDialog(QDialog):
         # 设为默认
         self.is_default_check = QCheckBox("设为默认配置")
         form_layout.addRow("", self.is_default_check)
-        
+
         right_layout.addWidget(form_widget)
-        
-        # 测试结果区域
-        test_group = QGroupBox("连接测试")
-        test_layout = QVBoxLayout()
-        
-        self.test_progress = QProgressBar()
-        self.test_progress.setVisible(False)
-        test_layout.addWidget(self.test_progress)
-        
-        self.test_result_label = QLabel("点击\"测试连接\"按钮测试API配置")
-        self.test_result_label.setWordWrap(True)
-        test_layout.addWidget(self.test_result_label)
-        
-        test_group.setLayout(test_layout)
-        right_layout.addWidget(test_group)
         
         right_layout.addStretch()
         

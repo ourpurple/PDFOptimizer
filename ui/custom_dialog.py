@@ -23,10 +23,10 @@ class CustomMessageBox(QMessageBox):
 
         self.setStyleSheet("""
             QMessageBox {
-                background-color: #d5dbe4;
+                background-color: rgba(255, 255, 255, 0.98);
             }
             QLabel {
-                color: #1e293b;
+                color: #1a2332;
                 font-size: 11pt;
             }
             QPushButton {
@@ -34,9 +34,9 @@ class CustomMessageBox(QMessageBox):
                                             stop:0 #3b82f6, stop:1 #2563eb);
                 color: #ffffff;
                 border: none;
-                padding: 8px 16px;
-                border-radius: 6px;
-                min-width: 80px;
+                padding: 10px 18px;
+                border-radius: 10px;
+                min-width: 90px;
                 font-weight: 600;
             }
             QPushButton:hover {
@@ -108,23 +108,28 @@ class BookmarkEditDialog(QDialog):
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["页码", "书签内容"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setDefaultSectionSize(36)
         layout.addWidget(self.table)
 
         btn_layout = QHBoxLayout()
         self.add_btn = QPushButton("添加")
+        self.add_btn.setObjectName("bookmark_small_btn")
         self.add_btn.clicked.connect(self.add_row)
         btn_layout.addWidget(self.add_btn)
         self.del_btn = QPushButton("删除")
+        self.del_btn.setObjectName("bookmark_small_btn")
         self.del_btn.clicked.connect(self.delete_row)
         btn_layout.addWidget(self.del_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
         ok_cancel_layout = QHBoxLayout()
+        ok_cancel_layout.addStretch()
         self.ok_btn = QPushButton("确定")
         self.ok_btn.clicked.connect(self.accept)
         ok_cancel_layout.addWidget(self.ok_btn)
         self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("bookmark_cancel_btn")
         self.cancel_btn.clicked.connect(self.reject)
         ok_cancel_layout.addWidget(self.cancel_btn)
         layout.addLayout(ok_cancel_layout)
