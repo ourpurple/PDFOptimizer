@@ -40,19 +40,9 @@ def add_bookmarks_to_pdf(input_path: str, output_path: str, bookmarks: List[Dict
         with pdf.open_outline() as outline:
             for bm in valid_bookmarks:
                 page_num = bm["page"] - 1  # 转换为0基页码
-                page = pdf.pages[page_num].obj
-                
-                # 创建目标位置（页面顶部）
-                dest = [
-                    page,
-                    pikepdf.Name("/XYZ"),  # 使用XYZ模式，可以指定具体位置
-                    0,  # left
-                    page.MediaBox,  # top (页面高度)
-                    1.0  # zoom (100%)
-                ]
-                
-                # 创建书签项并设置目标位置
-                outline_item = pikepdf.OutlineItem(bm["title"], dest)
+
+                # 使用 pikepdf API 直接传入0基页码，自动生成正确的目标位置
+                outline_item = pikepdf.OutlineItem(bm["title"], page_num)
                 outline.root.append(outline_item)
             
         # 确保输出目录存在
@@ -92,8 +82,7 @@ def batch_add_bookmarks_to_pdfs(
         
         # 生成输出文件路径
         filename = os.path.basename(file_path)
-        # 修正这里，之前是 f"{os.path.splitext(filename)}[已加书签].pdf"，应该修正为 f"{os.path.splitext(filename)}[已加书签].pdf"
-        output_path = os.path.join(output_dir, f"{os.path.splitext(filename)}[已加书签].pdf")
+        output_path = os.path.join(output_dir, f"{os.path.splitext(filename)[0]}[已加书签].pdf")
         
         # 添加书签 (add_bookmarks_to_pdf 已被装饰，会自动处理异常)
         result = add_bookmarks_to_pdf(file_path, output_path, bookmarks)
