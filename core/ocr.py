@@ -1,21 +1,59 @@
 import base64
+import fitz  # PyMuPDF
 import httpx
 import json
 import os
 import re
 import time
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 from mistralai import Mistral
 
 from .utils import handle_exception, convert_markdown_to_docx_with_pandoc, preprocess_markdown_for_pandoc, is_pandoc_installed
 from .config_models import APIConfig
 from .config_manager import ConfigManager
 
-def encode_image_to_base64(image_path: str) -> Optional[str]:
-    """将图片文件编码为 Base64 字符串"""
+# API data URI 大小限制（10MB）
+_DATA_URI_MAX_BYTES = 10 * 1024 * 1024
+
+def encode_image_to_base64(image_path: str) -> Optional[Tuple[str, str]]:
+    """将图片文件编码为 Base64 字符串，超出 API 大小限制时自动压缩
+
+    对于超过 10MB data URI 限制的图片，依次尝试：
+    1. 转换为 JPEG 格式（通常可大幅缩小体积）
+    2. 逐步缩小图片尺寸直到符合限制
+
+    :param image_path: 图片文件路径
+    :return: (base64_str, mime_type) 元组，失败返回 None
+    """
     try:
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
+        with open(image_path, "rb") as f:
+            raw_data = f.read()
+
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_type = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
+        base64_str = base64.b64encode(raw_data).decode('utf-8')
+
+        # 未超过限制，直接返回
+        if len(f"data:{mime_type};base64,{base64_str}") <= _DATA_URI_MAX_BYTES:
+            return base64_str, mime_type
+
+        # 超限，使用 PyMuPDF 压缩：先转 JPEG，再逐步缩小尺寸
+        mime_type = "image/jpeg"
+        for shrink_factor in range(1, 9):
+            pix = fitz.Pixmap(image_path)
+            # JPEG 不支持 alpha 通道，移除
+            if pix.alpha:
+                pix = fitz.Pixmap(pix, 0)
+            if shrink_factor > 1:
+                pix.shrink(shrink_factor)
+            jpeg_data = pix.tobytes("jpeg")
+            base64_str = base64.b64encode(jpeg_data).decode('utf-8')
+
+            if len(f"data:{mime_type};base64,{base64_str}") <= _DATA_URI_MAX_BYTES:
+                return base64_str, mime_type
+
+        # 最大压缩仍超限，返回最后结果
+        return base64_str, mime_type
     except Exception:
         return None
 
@@ -81,8 +119,8 @@ def _process_with_openai_compatible(
             
         logger.info(f"正在处理第 {i+1}/{total_images} 页: {os.path.basename(image_path)}")
             
-        base64_image = encode_image_to_base64(image_path)
-        if not base64_image:
+        encode_result = encode_image_to_base64(image_path)
+        if not encode_result:
             error_message = f"无法编码图片: {os.path.basename(image_path)}"
             logger.error(f"页面 {i+1} 处理失败: {error_message}")
             page_content = f"\n\n--- 页面 {i+1} 处理失败: {error_message} ---\n\n"
@@ -90,7 +128,13 @@ def _process_with_openai_compatible(
             if progress_callback:
                 progress_callback(i + 1, total_images, error_message, "")
             continue
-            
+
+        base64_image, mime_type = encode_result
+        file_size_mb = os.path.getsize(image_path) / (1024 * 1024)
+        data_uri_mb = len(f"data:{mime_type};base64,{base64_image}") / (1024 * 1024)
+        if mime_type != "image/png":
+            logger.info(f"页面 {i+1}: 原始图片 {file_size_mb:.1f}MB 超限，已压缩为 JPEG ({data_uri_mb:.1f}MB)")
+
         payload = {
             "model": model_name,
             "messages": [
@@ -101,7 +145,7 @@ def _process_with_openai_compatible(
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}"
+                                "url": f"data:{mime_type};base64,{base64_image}"
                             }
                         }
                     ]
@@ -283,7 +327,6 @@ def _process_with_openai_compatible(
                 
                 # 创建合并的Word文件
                 if word_dir and os.path.exists(word_dir):
-                    from .utils import is_pandoc_installed
                     if is_pandoc_installed():
                         merged_docx_filename = f"{base_name}[完整合并].docx"
                         merged_docx_path = os.path.join(os.path.dirname(pdf_path), merged_docx_filename)
