@@ -243,7 +243,7 @@ class SortableTableWidget(QTableWidget):
     def move_row_up(self):
         """向上移动选定的行"""
         selected_rows = sorted(list(set(item.row() for item in self.selectedItems())))
-        if not selected_rows or selected_rows == 0:
+        if not selected_rows or selected_rows[0] == 0:
             return
 
         for row in selected_rows:

@@ -26,7 +26,7 @@ def convert_to_curves_with_ghostscript(input_path, output_path):
     ]
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
-    stdout, stderr = process.communicate()
+    _, stderr = process.communicate()
 
     if process.returncode != 0:
         error_message = f"Ghostscript 转曲失败，返回码：{process.returncode}，错误信息：{stderr.strip()}"

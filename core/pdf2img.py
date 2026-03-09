@@ -20,11 +20,11 @@ def convert_pdf_to_images(input_path, output_dir, image_format="png", dpi=300, p
     doc = fitz.open(input_path)
     page_count = len(doc)
     base_name, _ = os.path.splitext(os.path.basename(input_path))
+    num_digits = len(str(page_count))
 
     for page_num in range(page_count):
         page = doc.load_page(page_num)
         pix = page.get_pixmap(dpi=dpi)
-        num_digits = len(str(page_count))
         page_str = str(page_num + 1).zfill(num_digits)
 
         if page_count > 1:

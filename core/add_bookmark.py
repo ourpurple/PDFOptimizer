@@ -1,8 +1,7 @@
 import pikepdf
 import os
 from typing import List, Dict, Union
-from .utils import handle_exception, logger # 导入 handle_exception 和 logger
-import concurrent.futures # 导入 concurrent.futures
+from .utils import handle_exception, logger
 
 @handle_exception
 def add_bookmarks_to_pdf(input_path: str, output_path: str, bookmarks: List[Dict[str, Union[int, str]]]) -> dict:

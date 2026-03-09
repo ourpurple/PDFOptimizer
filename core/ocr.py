@@ -7,7 +7,7 @@ import time
 from typing import List, Dict, Any, Optional, Callable
 from mistralai import Mistral
 
-from .utils import handle_exception, convert_markdown_to_docx_with_pandoc, preprocess_markdown_for_pandoc
+from .utils import handle_exception, convert_markdown_to_docx_with_pandoc, preprocess_markdown_for_pandoc, is_pandoc_installed
 from .config_models import APIConfig
 from .config_manager import ConfigManager
 
@@ -239,7 +239,6 @@ def _process_with_openai_compatible(
             
             # 保存Word文件（如果安装了Pandoc）
             if word_dir:
-                from .utils import is_pandoc_installed
                 if is_pandoc_installed():
                     docx_filename = f"{base_name}[P{page_number}].docx"
                     docx_path = os.path.join(word_dir, docx_filename)
@@ -340,7 +339,7 @@ def _process_with_mistral(
         logger.info("正在调用 client.ocr.process...")
         
         ocr_response = client.ocr.process(
-            model="mistral-ocr-latest",
+            model=model_name,
             document={
                 "type": "document_url",
                 "document_url": data_uri

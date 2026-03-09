@@ -13,29 +13,28 @@ def optimize_pdf(input_path, output_path, quality_preset, progress_callback=None
     :param progress_callback: 进度回调函数，接收 0-100 整数
     :return: dict 优化结果
     """
-    pdf = pikepdf.open(input_path)
-    # 根据质量预设设置压缩参数
-    if quality_preset == "低质量 (最大压缩)":
-        compress_streams = True
-        object_stream_mode = pikepdf.ObjectStreamMode.generate
-        linearize = False
-    elif quality_preset == "中等质量 (推荐)":
-        compress_streams = True
-        object_stream_mode = pikepdf.ObjectStreamMode.generate
-        linearize = True
-    else:  # 高质量 (轻度优化)
-        compress_streams = False
-        object_stream_mode = pikepdf.ObjectStreamMode.disable
-        linearize = True
+    with pikepdf.open(input_path) as pdf:
+        # 根据质量预设设置压缩参数
+        if quality_preset == "低质量 (最大压缩)":
+            compress_streams = True
+            object_stream_mode = pikepdf.ObjectStreamMode.generate
+            linearize = False
+        elif quality_preset == "中等质量 (推荐)":
+            compress_streams = True
+            object_stream_mode = pikepdf.ObjectStreamMode.generate
+            linearize = True
+        else:  # 高质量 (轻度优化)
+            compress_streams = False
+            object_stream_mode = pikepdf.ObjectStreamMode.disable
+            linearize = True
 
-    pdf.save(
-        output_path,
-        min_version=pdf.pdf_version,
-        object_stream_mode=object_stream_mode,
-        compress_streams=compress_streams,
-        linearize=linearize
-    )
-    pdf.close()
+        pdf.save(
+            output_path,
+            min_version=pdf.pdf_version,
+            object_stream_mode=object_stream_mode,
+            compress_streams=compress_streams,
+            linearize=linearize
+        )
 
     original_size = os.path.getsize(input_path)
     optimized_size = os.path.getsize(output_path)

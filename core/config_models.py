@@ -8,6 +8,9 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 import uuid
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ValidationResult:
@@ -299,7 +302,7 @@ class ConfigProfile:
                 config = APIConfig.from_dict(config_data)
                 profile.configs.append(config)
             except Exception as e:
-                print(f"加载配置失败: {e}")
+                logger.error(f"加载配置失败: {e}")
                 continue
         
         profile.active_config_id = profiles_data.get("active_config_id")

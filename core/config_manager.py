@@ -11,8 +11,11 @@ import shutil
 from datetime import datetime
 import dotenv
 import uuid
+import logging
 
 from .config_models import APIConfig, ConfigProfile, ValidationResult, TestResult
+
+logger = logging.getLogger(__name__)
 
 class ConfigManager:
     """配置管理核心类"""
@@ -42,7 +45,7 @@ class ConfigManager:
                 data = json.load(f)
             return ConfigProfile.from_dict(data)
         except Exception as e:
-            print(f"加载配置文件失败: {e}")
+            logger.error(f"加载配置文件失败: {e}")
             # 尝试从备份恢复
             return self._restore_from_backup()
     
@@ -60,7 +63,7 @@ class ConfigManager:
             
             return True
         except Exception as e:
-            print(f"保存配置文件失败: {e}")
+            logger.error(f"保存配置文件失败: {e}")
             return False
     
     def export_configs(self, file_path: str, config_ids: Optional[List[str]] = None) -> bool:
@@ -89,7 +92,7 @@ class ConfigManager:
             
             return True
         except Exception as e:
-            print(f"导出配置失败: {e}")
+            logger.error(f"导出配置失败: {e}")
             return False
     
     def import_configs(self, file_path: str, merge: bool = True) -> List[APIConfig]:
@@ -122,7 +125,7 @@ class ConfigManager:
             
             return imported_configs
         except Exception as e:
-            print(f"导入配置失败: {e}")
+            logger.error(f"导入配置失败: {e}")
             return []
     
     def validate_config(self, config: APIConfig) -> ValidationResult:
@@ -206,7 +209,7 @@ class ConfigManager:
                 for old_backup in backups[:-10]:
                     old_backup.unlink()
         except Exception as e:
-            print(f"创建备份失败: {e}")
+            logger.error(f"创建备份失败: {e}")
     
     def _restore_from_backup(self) -> ConfigProfile:
         """从备份恢复配置"""
@@ -217,10 +220,10 @@ class ConfigManager:
                 latest_backup = backups[-1]
                 with open(latest_backup, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                print(f"从备份恢复配置: {latest_backup.name}")
+                logger.info(f"从备份恢复配置: {latest_backup.name}")
                 return ConfigProfile.from_dict(data)
         except Exception as e:
-            print(f"从备份恢复配置失败: {e}")
+            logger.error(f"从备份恢复配置失败: {e}")
         
         return ConfigProfile()
     
@@ -269,9 +272,9 @@ class ConfigManager:
                 if not migrated_env.exists():
                     self.env_file.rename(migrated_env)
                 
-                print(f"成功迁移旧配置到新系统: {config.name}")
+                logger.info(f"成功迁移旧配置到新系统: {config.name}")
             
             return profile
         except Exception as e:
-            print(f"迁移旧配置失败: {e}")
+            logger.error(f"迁移旧配置失败: {e}")
             return ConfigProfile()

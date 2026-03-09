@@ -65,7 +65,8 @@ def _get_gs_executable():
 
     # 3. 在系统 PATH 中查找
     found_gs = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
-    _GS_EXECUTABLE_PATH = found_gs
+    if found_gs:
+        _GS_EXECUTABLE_PATH = found_gs
     return found_gs
 
 def is_ghostscript_installed():
@@ -128,31 +129,25 @@ def convert_markdown_to_docx_with_pandoc(markdown_content, docx_path):
             "-o", docx_path,
             temp_md_path  # 从文件读取
         ]
-        
+
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             startupinfo=get_subprocess_startup_info()
         )
-        
-        stdout, stderr = process.communicate()
+
+        _, stderr = process.communicate()
 
         if process.returncode != 0:
             error_message = f"Pandoc 转换失败: {stderr.decode('utf-8', 'ignore')}"
             logger.error(error_message)
             return {"success": False, "message": error_message}
-            
+
         return {"success": True, "message": f"成功转换为: {docx_path}"}
 
-    except FileNotFoundError:
-        return {"success": False, "message": "Pandoc 命令未找到。"}
-    except Exception as e:
-        error_message = f"使用 Pandoc 转换时发生未知错误: {str(e)}"
-        logger.error(error_message, exc_info=True)
-        return {"success": False, "message": error_message}
     finally:
-        # 3. 确保临时文件在操作结束后被删除
+        # 确保临时文件在操作结束后被删除
         if temp_md_path and os.path.exists(temp_md_path):
             try:
                 os.remove(temp_md_path)
@@ -164,46 +159,37 @@ def convert_markdown_to_docx_with_pandoc(markdown_content, docx_path):
 def convert_image_to_pdf(image_path, output_pdf_path):
     """
     将图片文件转换为PDF文件
-    
+
     :param image_path: 图片文件路径
     :param output_pdf_path: 输出PDF文件路径
     :return: 包含 success 标志和消息的字典
     """
-    try:
-        # 创建一个新的PDF文档
-        pdf_document = fitz.open()
-        
-        # 打开图片文件
-        img_document = fitz.open(image_path)
-        
-        # 获取图片页面
-        page = img_document[0]
-        
-        # 获取图片的尺寸
-        img_rect = page.rect
-        
-        # 在PDF中创建一个新页面，尺寸与图片相同
-        pdf_page = pdf_document.new_page(width=img_rect.width, height=img_rect.height)
-        
-        # 将图片插入到PDF页面中
-        pdf_page.insert_image(img_rect, filename=image_path)
-        
-        # 保存PDF文件
-        pdf_document.save(output_pdf_path)
-        
-        # 关闭文档
-        pdf_document.close()
-        img_document.close()
-        
-        return {
-            "success": True,
-            "message": f"图片已成功转换为PDF: {output_pdf_path}"
-        }
-        
-    except Exception as e:
-        error_message = f"图片转PDF失败: {str(e)}"
-        logger.error(error_message, exc_info=True)
-        return {
-            "success": False,
-            "message": error_message
-        }
+    # 创建一个新的PDF文档
+    pdf_document = fitz.open()
+
+    # 打开图片文件
+    img_document = fitz.open(image_path)
+
+    # 获取图片页面
+    page = img_document[0]
+
+    # 获取图片的尺寸
+    img_rect = page.rect
+
+    # 在PDF中创建一个新页面，尺寸与图片相同
+    pdf_page = pdf_document.new_page(width=img_rect.width, height=img_rect.height)
+
+    # 将图片插入到PDF页面中
+    pdf_page.insert_image(img_rect, filename=image_path)
+
+    # 保存PDF文件
+    pdf_document.save(output_pdf_path)
+
+    # 关闭文档
+    pdf_document.close()
+    img_document.close()
+
+    return {
+        "success": True,
+        "message": f"图片已成功转换为PDF: {output_pdf_path}"
+    }

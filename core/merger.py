@@ -5,20 +5,27 @@ from .utils import _get_gs_executable, get_subprocess_startup_info, handle_excep
 @handle_exception
 def merge_pdfs(input_paths: list, output_path: str, progress_callback=None):
     """
-    Merges multiple PDF files into a single PDF file using pikepdf.
+    使用 pikepdf 将多个 PDF 文件合并为一个文件。
+
+    :param input_paths: PDF 文件路径列表
+    :param output_path: 合并后输出文件路径
+    :param progress_callback: 进度回调函数，接收 0-100 整数
+    :return: dict 合并结果
     """
     if not input_paths:
         return {"success": False, "message": "没有选择任何PDF文件进行合并。"}
 
     pdf = pikepdf.Pdf.new()
     total_files = len(input_paths)
-    for i, file_path in enumerate(input_paths):
-        if progress_callback:
-            progress_callback(int((i / total_files) * 100))
-        with pikepdf.open(file_path) as src:
-            pdf.pages.extend(src.pages)
-    pdf.save(output_path)
-    pdf.close()
+    try:
+        for i, file_path in enumerate(input_paths):
+            if progress_callback:
+                progress_callback(int((i / total_files) * 100))
+            with pikepdf.open(file_path) as src:
+                pdf.pages.extend(src.pages)
+        pdf.save(output_path)
+    finally:
+        pdf.close()
     if progress_callback:
         progress_callback(100)
     return {
@@ -51,7 +58,7 @@ def merge_pdfs_with_ghostscript(input_paths: list, output_path: str, progress_ca
     ] + input_paths
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=get_subprocess_startup_info())
-    stdout, stderr = process.communicate()
+    _, stderr = process.communicate()
 
     if process.returncode != 0:
         error_message = f"Ghostscript 合并失败，返回码：{process.returncode}，错误信息：{stderr.strip()}"
