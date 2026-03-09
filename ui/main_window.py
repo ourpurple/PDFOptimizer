@@ -1370,10 +1370,17 @@ class MainWindow(QMainWindow):
     def add_files_to_bookmark(self, files):
         current_row = self.bookmark_file_table.rowCount()
         self.bookmark_file_table.setRowCount(current_row + len(files))
+        use_common = self.use_common_bookmarks_checkbox.isChecked()
         for i, file_path in enumerate(files):
             row = current_row + i
             self.bookmark_file_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file_path)))
-            self.bookmark_file_table.setItem(row, 1, QTableWidgetItem("排队中..."))
+            # 显示已有的书签数量
+            bookmark_count = 0
+            if use_common and hasattr(self, '_common_bookmarks'):
+                bookmark_count = len(self._common_bookmarks)
+            elif hasattr(self, '_file_bookmarks') and file_path in self._file_bookmarks:
+                bookmark_count = len(self._file_bookmarks[file_path])
+            self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(bookmark_count) if bookmark_count > 0 else "未设置"))
             self.bookmark_file_table.setItem(row, 2, QTableWidgetItem("操作"))
             self.bookmark_file_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, file_path)
         
@@ -1781,6 +1788,21 @@ class MainWindow(QMainWindow):
             if dlg.exec() == QDialog.Accepted:
                 self._file_bookmarks[file_path] = dlg.get_bookmarks()
                 self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._file_bookmarks[file_path]))))
+    def _extract_bookmarks_from_import(self, data):
+        """从导入数据中提取书签列表，兼容多种格式"""
+        # 格式1：纯列表 [{"page":1,"title":"xxx"}, ...]
+        if isinstance(data, list):
+            return data
+        # 格式2：旧版共用书签 {"all": [...]}
+        if isinstance(data, dict) and 'all' in data:
+            return data['all']
+        # 格式3：旧版按文件名/路径绑定 {"file.pdf": [...], ...}，取第一个文件的书签
+        if isinstance(data, dict):
+            for value in data.values():
+                if isinstance(value, list):
+                    return value
+        return []
+
     def import_bookmarks_clicked(self):
         path, _ = QFileDialog.getOpenFileName(self, "导入书签配置", "", "JSON Files (*.json)")
         if not path:
@@ -1788,33 +1810,66 @@ class MainWindow(QMainWindow):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            if 'all' in data:
-                self._common_bookmarks = data['all']
-                self.use_common_bookmarks_checkbox.setChecked(True)
+            bookmarks = self._extract_bookmarks_from_import(data)
+            if not bookmarks:
+                CustomMessageBox.warning(self, "导入失败", "配置文件中没有有效的书签数据。")
+                return
+            # 打开编辑对话框，让用户确认和编辑导入的书签
+            dlg = BookmarkEditDialog(self, bookmarks=bookmarks)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            confirmed_bookmarks = dlg.get_bookmarks()
+            if not confirmed_bookmarks:
+                return
+            use_common = self.use_common_bookmarks_checkbox.isChecked()
+            if use_common:
+                # 共用模式：设为共用书签
+                self._common_bookmarks = confirmed_bookmarks
+                for row in range(self.bookmark_file_table.rowCount()):
+                    self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(confirmed_bookmarks))))
             else:
-                self._file_bookmarks = data
-                self.use_common_bookmarks_checkbox.setChecked(False)
-            # 更新界面书签数
-            for row in range(self.bookmark_file_table.rowCount()):
-                file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-                if hasattr(self, '_file_bookmarks') and file_path in self._file_bookmarks:
-                    self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._file_bookmarks[file_path]))))
-                elif hasattr(self, '_common_bookmarks'):
-                    self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(self._common_bookmarks))))
+                # 独立模式：应用到当前选中的文件
+                if not hasattr(self, '_file_bookmarks'):
+                    self._file_bookmarks = {}
+                selected = self.bookmark_file_table.selectedItems()
+                if selected:
+                    target_rows = sorted(set(item.row() for item in selected))
+                else:
+                    # 未选中则应用到所有文件
+                    target_rows = list(range(self.bookmark_file_table.rowCount()))
+                for row in target_rows:
+                    file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                    self._file_bookmarks[file_path] = confirmed_bookmarks
+                    self.bookmark_file_table.setItem(row, 1, QTableWidgetItem(str(len(confirmed_bookmarks))))
+            CustomMessageBox.information(self, "导入成功", f"已导入 {len(confirmed_bookmarks)} 条书签。")
         except Exception as e:
             CustomMessageBox.warning(self, "导入失败", f"导入书签配置失败：{str(e)}")
+
     def export_bookmarks_clicked(self):
+        """导出当前书签为纯列表格式"""
+        # 确定要导出的书签数据
+        use_common = self.use_common_bookmarks_checkbox.isChecked()
+        if use_common:
+            bookmarks = getattr(self, '_common_bookmarks', [])
+        else:
+            selected = self.bookmark_file_table.selectedItems()
+            if selected:
+                row = selected[0].row()
+                file_path = self.bookmark_file_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                bookmarks = getattr(self, '_file_bookmarks', {}).get(file_path, [])
+            else:
+                CustomMessageBox.warning(self, "导出提示", "请先选中要导出书签的文件。")
+                return
+        if not bookmarks:
+            CustomMessageBox.warning(self, "导出提示", "当前没有可导出的书签数据。")
+            return
         path, _ = QFileDialog.getSaveFileName(self, "导出书签配置", "", "JSON Files (*.json)")
         if not path:
             return
         try:
-            if self.use_common_bookmarks_checkbox.isChecked():
-                data = {'all': getattr(self, '_common_bookmarks', [])}
-            else:
-                data = getattr(self, '_file_bookmarks', {})
             with open(path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            CustomMessageBox.information(self, "导出成功", "书签配置已成功导出！")
+                json.dump(bookmarks, f, ensure_ascii=False, indent=2)
+            CustomMessageBox.information(self, "导出成功", f"已导出 {len(bookmarks)} 条书签。")
         except Exception as e:
             CustomMessageBox.warning(self, "导出失败", f"导出书签配置失败：{str(e)}")
     def start_add_bookmarks(self):

@@ -224,6 +224,9 @@ class BookmarkEditDialog(QDialog):
         super().accept()
 
     def get_bookmarks(self):
-        """实时返回当前表格中的书签数据"""
+        """返回已验证通过的书签数据"""
+        if self.result_bookmarks is not None:
+            return self.result_bookmarks
+        # 对话框未通过验证时，实时采集当前数据
         bookmarks, _ = self._validate_and_collect_bookmarks()
         return bookmarks
