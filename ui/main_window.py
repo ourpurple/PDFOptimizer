@@ -1237,7 +1237,13 @@ class MainWindow(QMainWindow):
         style_path = resource_path("ui/style.qss")
         if os.path.exists(style_path):
             with open(style_path, "r", encoding="utf-8") as f:
-                self.setStyleSheet(f.read())
+                qss = f.read()
+            # 将QSS中的相对路径替换为绝对路径，确保图标资源能正确加载
+            base_dir = resource_path("").replace("\\", "/")
+            if not base_dir.endswith("/"):
+                base_dir += "/"
+            qss = qss.replace("url(ui/", f"url({base_dir}ui/")
+            self.setStyleSheet(qss)
                 
     def show_config_manager_dialog(self):
         """显示配置管理对话框"""
